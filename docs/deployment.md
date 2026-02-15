@@ -625,25 +625,31 @@ Add MCP configuration to your workspace:
 {
   "servers": {
     "rag-search": {
-      "type": "sse",
-      "url": "https://rag-mcp-HASH.a.run.app/sse",
+      "type": "http",
+      "url": "https://rag-mcp-HASH.a.run.app/mcp",
       "headers": {
-        "Authorization": "Bearer <your-id-token>"
+        "Authorization": "Bearer ${input:rag-token}"
       }
     }
-  }
+  },
+  "inputs": [
+    {
+      "id": "rag-token",
+      "type": "promptString",
+      "description": "RAG service auth token (RAG_SHARED_TOKEN or OIDC identity token)",
+      "password": true
+    }
+  ]
 }
 ```
 
-**Obtain an OIDC token:**
+Replace `HASH` with your actual Cloud Run service hash:
 
 ```bash
-MCP_URL=$(gcloud run services describe rag-mcp --format='value(status.url)')
-
-gcloud auth print-identity-token --audiences="$MCP_URL"
+gcloud run services describe rag-mcp --region=us-central1 --format='value(status.url)'
 ```
 
-Tokens expire after ~1 hour. Refresh with the same command.
+VS Code will prompt for the token on first connection. For local dev, use your `RAG_SHARED_TOKEN` value.
 
 **Available MCP tools:**
 

@@ -186,13 +186,21 @@ Add to `.vscode/mcp.json` in your workspace:
 {
   "servers": {
     "rag-search": {
-      "type": "sse",
-      "url": "https://rag-mcp-<hash>.a.run.app/sse",
+      "type": "http",
+      "url": "https://rag-mcp-<hash>.a.run.app/mcp",
       "headers": {
-        "Authorization": "Bearer <your-id-token>"
+        "Authorization": "Bearer ${input:rag-token}"
       }
     }
-  }
+  },
+  "inputs": [
+    {
+      "id": "rag-token",
+      "type": "promptString",
+      "description": "RAG service auth token (RAG_SHARED_TOKEN or OIDC identity token)",
+      "password": true
+    }
+  ]
 }
 ```
 

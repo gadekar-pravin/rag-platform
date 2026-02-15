@@ -108,7 +108,7 @@ Same AlloyDB Omni instance as ApexFlow (`alloydb-omni-dev`), but uses independen
 
 ### Row-Level Security (RLS)
 
-Multi-tenant isolation is enforced at the PostgreSQL level via `FORCE ROW LEVEL SECURITY` on `rag_documents`. The application sets `SET LOCAL app.tenant_id` and `SET LOCAL app.user_id` per-transaction via `rls_connection()` in `db.py`.
+Multi-tenant isolation is enforced at the PostgreSQL level via `FORCE ROW LEVEL SECURITY` on `rag_documents`. The application sets `app.tenant_id` and `app.user_id` per-transaction via `set_config(name, value, is_local=true)` in `rls_connection()` (`db.py`). This is the parameterized equivalent of `SET LOCAL` — PostgreSQL's `SET` command does not support `$1` placeholders.
 
 **Visibility rules:**
 - `TEAM` docs: visible to all users in the same tenant
@@ -237,11 +237,13 @@ rag_mcp/                  # MCP server for VS Code Copilot
   Dockerfile              # Lightweight image + HEALTHCHECK + pinned deps
 
 alembic/                  # Database migrations (independent chain)
-  env.py                  # 3-priority connection logic (psycopg2)
+  alembic.ini             # Uses version_table=rag_alembic_version (avoids ApexFlow collision)
+  env.py                  # 3-priority connection logic (psycopg2) + version_table
   versions/
     001_rag_tables.py     # 5 tables + RLS policies + 3 dedup indexes
 
 docs/
+  deployment.md           # Production deployment guide (Cloud Run + AlloyDB)
   alloy_db_manual_ingestion_implementation_plan_v_1.md  # Full ingestion plan
 
 tests/
@@ -342,8 +344,8 @@ This is a **separate repository**, not a monorepo. Code was ported from ApexFlow
 |---|---|---|
 | Chunker | `core/rag/chunker.py` | Removed `settings_loader` dependency; params accepted directly |
 | Embedding | `remme/utils.py` + `core/gemini_client.py` | Model → `gemini-embedding-001`; dim guard replaces zero-vector fallback; client factory inlined |
-| DB pool | `core/database.py` | Added `rls_connection()` context manager with `SET LOCAL` |
-| Alembic env | `alembic/env.py` | Same 3-priority logic, independent migration chain starting at 001 |
+| DB pool | `core/database.py` | Added `rls_connection()` context manager with `set_config()` (not `SET LOCAL` — PostgreSQL `SET` doesn't support parameterized queries) |
+| Alembic env | `alembic/env.py` | Same 3-priority logic, independent migration chain starting at 001, separate `rag_alembic_version` table |
 | Search store | `core/stores/document_search.py` | **Rewritten** — 3-table join, RLS, best-chunks-per-doc, debug metrics |
 | Document store | `core/stores/document_store.py` | Adapted for multi-tenant with visibility + soft delete |
 
@@ -352,6 +354,12 @@ Ported code may diverge from ApexFlow over time. This is accepted as the trade-o
 ## GCP Configuration
 
 - **Project:** `apexflow-ai`
-- **AlloyDB VM:** `alloydb-omni-dev` in `us-central1-a` (shared with ApexFlow)
-- **Cloud Run (RAG service):** Deploy target TBD
-- **Cloud Run (MCP server):** Deploy target TBD
+- **AlloyDB VM:** `alloydb-omni-dev` in `us-central1-a` (shared with ApexFlow, private IP `10.128.0.3`)
+- **Cloud Run (RAG service):** `rag-service` in `us-central1` (Direct VPC egress to AlloyDB)
+- **Cloud Run (MCP server):** `rag-mcp` in `us-central1` (public HTTPS, no VPC needed)
+- **Cloud Run Job (Ingestion):** `rag-ingest` in `us-central1` (Direct VPC egress to AlloyDB)
+- **Artifact Registry:** `us-central1-docker.pkg.dev/apexflow-ai/rag`
+- **GCS Ingestion Bucket:** `gs://rag-ingest-apexflow-ai`
+- **Service Accounts:** `rag-service@`, `rag-mcp@`, `rag-ingest@` (least-privilege)
+- **Secrets:** `rag-alloydb-password`, `rag-oidc-audience` in Secret Manager
+- **Deployment guide:** `docs/deployment.md`

@@ -104,7 +104,7 @@ rag_documents          # Metadata, content, dedup hash, soft delete
     │       │
     │       └── rag_chunk_embeddings   # Vector embeddings (separate for re-embedding)
     │
-rag_ingestion_runs     # Batch ingestion tracking (future)
+rag_ingestion_runs     # Batch ingestion tracking (run status, file counts)
     │
     └── rag_ingestion_items    # Per-file status within a run
 ```
@@ -310,6 +310,9 @@ docker build -f rag_service/Dockerfile -t rag-service:local .
 # Build MCP server
 docker build -f rag_mcp/Dockerfile -t rag-mcp:local .
 
+# Build ingestion batch job
+docker build -f rag_service/Dockerfile.ingestor -t rag-ingestor:local .
+
 # Run RAG service
 docker run -p 8080:8080 \
   -e RAG_SHARED_TOKEN=dev-token \
@@ -355,18 +358,27 @@ rag_service/              # Core RAG API (FastAPI)
   db.py                   # Asyncpg pool + RLS context manager
   embedding.py            # Gemini embeddings with dimension guard
   models.py               # Pydantic schemas
-  chunking/chunker.py     # Rule-based + semantic document chunking
+  Dockerfile              # API server image
+  Dockerfile.ingestor     # Batch ingestion job image
+  chunking/chunker.py     # Rule-based + semantic chunking with span offsets
   stores/
-    rag_document_store.py # Document CRUD with content-hash dedup
+    rag_document_store.py # Document CRUD with content-hash + source_uri dedup
     rag_search_store.py   # Hybrid search with RRF fusion
+  ingestion/              # GCS batch ingestion pipeline
+    main.py               # CLI entry point
+    runner.py             # Orchestrates extract → chunk → embed → store
+    planner.py            # File discovery + source hash computation
+    extractors/           # Text, HTML, DOCX, PDF, Image extractors
+    ocr/                  # Document AI integration (online + batch OCR)
 
 rag_mcp/                  # MCP server for VS Code Copilot
   server.py               # FastMCP with streamable HTTP transport
   tools.py                # search + list_documents tools
 
 alembic/                  # Database migrations
-  versions/001_rag_tables.py  # 5 tables, RLS policies, indexes
+  versions/001_rag_tables.py  # 5 tables, RLS policies, 3 dedup indexes
 
+docs/                     # Implementation plans and design docs
 tests/                    # Unit (mock) + integration (real DB) tests
 scripts/                  # ScaNN indexes, dev data seeding
 ```

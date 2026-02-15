@@ -8,7 +8,7 @@ RAG Platform is a standalone, multi-tenant Retrieval-Augmented Generation servic
 
 **Why separate?** Data engineers need document search through VS Code Copilot without access to the ApexFlow app. The RAG service has its own auth (Cloud Run OIDC, not Firebase), multi-tenant Row-Level Security (not single-tenant `user_id` scoping), and no dependency on ApexFlow's `ServiceRegistry` or `settings.json`.
 
-**Current state:** MVP complete. Schema + retrieval store + HTTP API + MCP server are implemented. GCS batch ingestion job is deferred — documents are seeded via the `POST /v1/index` endpoint or direct DB inserts.
+**Current state:** MVP + ingestion complete. Schema + retrieval store + HTTP API + MCP server + GCS batch ingestion pipeline are implemented. Documents can be loaded via the `POST /v1/index` endpoint, direct DB inserts, or the GCS ingestion CLI (`python -m rag_service.ingestion.main`).
 
 ## Common Commands
 
@@ -23,6 +23,9 @@ pip install -e ".[dev]"
 
 # Install MCP server dependencies
 pip install -e ".[mcp]"
+
+# Install ingestion dependencies (GCS, DocAI, extractors)
+pip install -e ".[ingestion]"
 
 # Run tests
 pytest tests/ -v                                  # full suite
@@ -53,9 +56,14 @@ RAG_SERVICE_URL=http://localhost:8000 RAG_MCP_TOKEN=dev-token python -m rag_mcp.
 # Seed sample documents (requires running DB + GEMINI_API_KEY)
 python scripts/seed-dev-data.py
 
+# Run the GCS ingestion pipeline (requires GEMINI_API_KEY + DB)
+RAG_INGEST_INPUT_BUCKET=my-bucket python -m rag_service.ingestion.main --tenant=acme-corp
+RAG_INGEST_INPUT_BUCKET=my-bucket python -m rag_service.ingestion.main --tenant=acme-corp --dry-run
+
 # Docker
 docker build -f rag_service/Dockerfile -t rag-service:local .
 docker build -f rag_mcp/Dockerfile -t rag-mcp:local .
+docker build -f rag_service/Dockerfile.ingestor -t rag-ingestor:local .
 ```
 
 ## Testing
@@ -69,10 +77,11 @@ docker build -f rag_mcp/Dockerfile -t rag-mcp:local .
 
 ### Two Services
 
-The platform consists of two independently deployable Cloud Run services:
+The platform consists of two Cloud Run services and one Cloud Run Job:
 
 1. **RAG Service** (`rag_service/`) — FastAPI app that owns the database, embedding pipeline, and search logic. Authenticated via Cloud Run OIDC or a shared dev token.
 2. **MCP Server** (`rag_mcp/`) — Lightweight proxy that exposes `search` and `list_documents` MCP tools over streamable HTTP transport. Calls the RAG Service over HTTP. VS Code Copilot connects here.
+3. **Ingestion Runner** (`rag_service/ingestion/`) — Batch job that imports documents from GCS, extracts text (with OCR fallback via Document AI), chunks, embeds, and stores in AlloyDB. Runs as a Cloud Run Job or locally via CLI.
 
 ### Database
 
@@ -92,7 +101,7 @@ Same AlloyDB Omni instance as ApexFlow (`alloydb-omni-dev`), but uses independen
 | `rag_documents` | Document metadata + content + dedup hash + soft delete |
 | `rag_document_chunks` | Chunk text with offsets + generated FTS tsvector column |
 | `rag_chunk_embeddings` | Vector embeddings separated from chunks (enables re-embedding without re-chunking) |
-| `rag_ingestion_runs` | Batch ingestion tracking (schema ready, populated when GCS job is built) |
+| `rag_ingestion_runs` | Batch ingestion tracking (run status, file counts) |
 | `rag_ingestion_items` | Per-file ingestion status within a run |
 
 **3-table design rationale:** Documents → chunks → embeddings separation means you can re-embed (e.g., when upgrading from `gemini-embedding-001` to a future model) without re-chunking, since chunking is the expensive LLM-driven step for semantic mode.
@@ -108,7 +117,10 @@ Multi-tenant isolation is enforced at the PostgreSQL level via `FORCE ROW LEVEL 
 
 **CHECK constraint:** `TEAM` docs must have `owner_user_id IS NULL`; `PRIVATE` docs must have `owner_user_id IS NOT NULL`.
 
-**Dedup index:** `COALESCE(owner_user_id, '')` handles NULL uniqueness so two TEAM docs with the same content_hash correctly dedup.
+**Dedup indexes (3 partial unique indexes):**
+- `ux_rag_docs_team_source_uri` — TEAM docs with `source_uri`: one canonical doc per `(tenant_id, source_uri)`
+- `ux_rag_docs_team_dedup_adhoc` — TEAM ad-hoc docs (no `source_uri`): dedup by `(tenant_id, content_hash)`
+- `ux_rag_docs_private_dedup` — PRIVATE docs: dedup by `(tenant_id, owner_user_id, content_hash)`
 
 **Fail-closed:** `rls_connection()` raises `ValueError` if `tenant_id` or `user_id` are empty. The DB role must NOT have `SUPERUSER` or `BYPASSRLS`.
 
@@ -144,6 +156,10 @@ RLS replaces `WHERE user_id =` — no tenant filtering in application SQL.
 
 Accepts parameters directly (no `settings.json` dependency). Defaults: 2000 chars chunk size, 200 chars overlap.
 
+Two entry points:
+- `chunk_document()` — returns `list[str]` (text only)
+- `chunk_document_with_spans()` — returns `list[tuple[str, int|None, int|None]]` (text, start_char, end_char). Offsets are computed for rule-based mode; `None` for semantic mode.
+
 ### Request Flow: Auth Middleware → Identity
 
 `rag_service/auth.py` — Two modes:
@@ -166,6 +182,18 @@ Public paths that skip auth: `/liveness`, `/readiness`, `/docs`, `/openapi.json`
 
 Results are formatted as concise text for LLM consumption (titles, scores, truncated chunks).
 
+### Ingestion Pipeline
+
+`rag_service/ingestion/` — Batch import from GCS with text extraction, OCR fallback, chunking, and embedding.
+
+**Flow:** CLI (`main.py`) → discover tenants → `IngestionRunner.run_tenant()` → per-file: download → extract → chunk → embed → `upsert_document_by_source_uri()`.
+
+**Extractors:** Text, HTML (BeautifulSoup), DOCX (python-docx), PDF (pypdf + Document AI OCR fallback), Image (Document AI online OCR).
+
+**Incremental mode:** `compute_source_hash()` builds a change marker from GCS metadata (generation, md5, crc32c, size, updated). If unchanged, the file is skipped.
+
+**Document store:** `upsert_document_by_source_uri()` — canonical TEAM upsert keyed by `(tenant_id, source_uri)`. Atomically replaces chunks + embeddings on content change. Returns `unchanged` if content and settings haven't changed.
+
 ## Project Layout
 
 ```
@@ -176,12 +204,30 @@ rag_service/              # Core RAG API service
   db.py                   # Asyncpg pool + rls_connection() context manager
   embedding.py            # Gemini embedding with dim guard
   models.py               # Pydantic request/response schemas
-  Dockerfile              # Multi-stage build
+  Dockerfile              # Multi-stage build (API server)
+  Dockerfile.ingestor     # Multi-stage build (batch ingestion job)
   chunking/
-    chunker.py            # Rule-based + semantic document chunking
+    chunker.py            # Rule-based + semantic chunking, with optional span offsets
   stores/
-    rag_document_store.py # CRUD: upsert, list, get, soft-delete
+    rag_document_store.py # CRUD: upsert (ad-hoc + source_uri), list, get, soft-delete
     rag_search_store.py   # Hybrid search: 3-table join, RRF, best-chunks
+  ingestion/              # GCS batch ingestion pipeline
+    main.py               # CLI entry point (python -m rag_service.ingestion.main)
+    cli.py                # Argument parser (--tenant, --dry-run, --force, etc.)
+    config.py             # IngestConfig from env vars
+    runner.py             # IngestionRunner: orchestrates extract → chunk → embed → store
+    planner.py            # discover_work_items, compute_source_hash, derive_doc_type
+    gcs.py                # GCS utilities (list, download, upload)
+    types.py              # WorkItem, ExtractResult, ProcessResult dataclasses
+    extractors/
+      base.py             # Extractor ABC + normalize_text()
+      text.py             # .txt/.md extractor
+      html.py             # .html/.htm extractor (BeautifulSoup)
+      docx.py             # .docx extractor (python-docx)
+      pdf.py              # .pdf extractor (pypdf + OCR fallback)
+      image.py            # Image extractor (Document AI online OCR)
+    ocr/
+      document_ai.py      # Document AI client (online + batch OCR)
 
 rag_mcp/                  # MCP server for VS Code Copilot
   server.py               # FastMCP with streamable HTTP transport
@@ -192,7 +238,10 @@ rag_mcp/                  # MCP server for VS Code Copilot
 alembic/                  # Database migrations (independent chain)
   env.py                  # 3-priority connection logic (psycopg2)
   versions/
-    001_rag_tables.py     # 5 tables + RLS policies + indexes
+    001_rag_tables.py     # 5 tables + RLS policies + 3 dedup indexes
+
+docs/
+  alloy_db_manual_ingestion_implementation_plan_v_1.md  # Full ingestion plan
 
 tests/
   unit/                   # Mock-based, no DB required
@@ -200,10 +249,12 @@ tests/
     test_embedding.py     # Dim guard, task types, GCP detection
     test_auth.py          # OIDC, shared token safety, public paths
     test_chunker.py       # Edge cases, overlap, splitting
+    test_ingestion.py     # Source hash, extractors, planner, config, normalize_text
   integration/            # Requires AlloyDB (gracefully skips when unavailable)
     test_rls.py           # FORCE RLS, tenant isolation, PRIVATE visibility
     test_dedup.py         # COALESCE NULL, cascade, per-owner dedup
     test_hybrid_search.py # Vector ranking, FTS, RRF fusion, best-chunks
+    test_ingestion_dedup.py  # GCS canonical upsert, unchanged skip, atomicity
 
 scripts/
   create-scann-indexes.sql  # ScaNN index (AlloyDB only, run after data)
@@ -248,6 +299,21 @@ scripts/
 | `RAG_MCP_TOKEN` | Auth token for MCP → RAG API calls | unset |
 | `MCP_PORT` | MCP server listen port | `8001` |
 | `DATABASE_TEST_URL` | Test database URL for integration tests | `postgresql://apexflow:apexflow@localhost:5432/apexflow` |
+| `RAG_INGEST_INPUT_BUCKET` | GCS bucket for ingestion source documents | (required for ingestion) |
+| `RAG_INGEST_INPUT_PREFIX` | Prefix under each tenant directory | `incoming/` |
+| `RAG_INGEST_TENANTS` | Comma-separated tenant allowlist | unset (all tenants) |
+| `RAG_INGEST_INCREMENTAL` | Skip unchanged files by source hash | `true` |
+| `RAG_INGEST_FORCE_REINDEX` | Force re-process all files | `false` |
+| `RAG_INGEST_MAX_FILE_WORKERS` | Concurrent file processing workers | `3` |
+| `RAG_INGEST_MAX_RETRIES_PER_FILE` | Retry attempts per failed file | `2` |
+| `RAG_INGEST_OUTPUT_BUCKET` | GCS bucket for extracted text artifacts | unset |
+| `RAG_INGEST_OUTPUT_PREFIX` | Prefix for output artifacts | `rag-extracted/` |
+| `RAG_MAX_CONTENT_CHARS` | Truncate documents exceeding this length | `2000000` |
+| `RAG_OCR_ENABLED` | Enable Document AI OCR for scanned PDFs/images | `true` |
+| `RAG_DOC_AI_PROJECT` | GCP project for Document AI | unset |
+| `RAG_DOC_AI_LOCATION` | GCP region for Document AI | unset |
+| `RAG_DOC_AI_PROCESSOR_ID` | Document AI OCR processor ID | unset |
+| `RAG_PDF_TEXT_PER_PAGE_MIN` | Chars/page threshold below which PDF falls back to OCR | `200` |
 
 ## API Endpoints
 

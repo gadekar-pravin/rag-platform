@@ -255,12 +255,15 @@ docs/
   alloy_db_manual_ingestion_implementation_plan_v_1.md  # Full ingestion plan
 
 tests/
+  fixtures/
+    ingestion/            # Real file fixtures for extractor tests (txt, html, md, etc.)
   unit/                   # Mock-based, no DB required
     test_search_store.py  # RRF math, SQL params, empty results
     test_embedding.py     # Dim guard, task types, GCP detection
     test_auth.py          # OIDC, shared token safety, public paths
     test_chunker.py       # Edge cases, overlap, splitting
     test_ingestion.py     # Source hash, extractors, planner, config, normalize_text
+    test_extractors.py    # Real-file extractor tests (text, html, docx, pdf) with fixtures
     test_endpoints.py     # FastAPI endpoints, middleware, auth, body size, rate limits
     test_mcp_oidc.py      # OIDC token minting, caching, refresh, stale fallback
     test_mcp_tools.py     # MCP token priority (OIDC > caller > static), context extraction

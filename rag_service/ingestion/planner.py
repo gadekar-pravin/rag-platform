@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime
-from typing import Iterable
 
 from google.cloud import storage
 
 from rag_service.ingestion.gcs import gs_uri
 from rag_service.ingestion.types import WorkItem
-
 
 _SUPPORTED_EXTS: dict[str, str] = {
     ".pdf": "pdf",
@@ -27,7 +24,7 @@ _SUPPORTED_EXTS: dict[str, str] = {
 
 def _ext(name: str) -> str:
     base = name.lower()
-    for e in _SUPPORTED_EXTS.keys():
+    for e in _SUPPORTED_EXTS:
         if base.endswith(e):
             return e
     return ""

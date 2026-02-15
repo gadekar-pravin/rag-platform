@@ -46,9 +46,7 @@ class PdfExtractor(Extractor):
         # OCR if low quality or empty
         if not extracted_norm or tpp < self._min:
             if self._docai_output_prefix is None:
-                raise ValueError(
-                    "RAG_INGEST_OUTPUT_BUCKET is required for PDF batch OCR"
-                )
+                raise ValueError("RAG_INGEST_OUTPUT_BUCKET is required for PDF batch OCR")
             # Batch OCR expects GCS input; ingestion passes source_uri as GCS.
             # We do not upload bytes; we call DocAI batch on the original GCS object.
             text, meta = self._docai.ocr_pdf_batch(

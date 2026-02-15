@@ -31,10 +31,7 @@ async def _amain() -> int:
 
     # Determine tenants
     tenants: list[str]
-    if args.all_tenants:
-        tenants = list_tenant_prefixes(client, cfg.input_bucket)
-    else:
-        tenants = list(args.tenant or [])
+    tenants = list_tenant_prefixes(client, cfg.input_bucket) if args.all_tenants else list(args.tenant or [])
 
     if cfg.tenants_allowlist is not None:
         tenants = [t for t in tenants if t in cfg.tenants_allowlist]

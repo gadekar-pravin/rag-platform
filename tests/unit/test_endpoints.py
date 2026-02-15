@@ -333,9 +333,7 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(
-                return_value={"document_id": doc_id, "total_chunks": 1}
-            )
+            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 1})
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},
@@ -514,9 +512,7 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(
-                return_value={"document_id": doc_id, "total_chunks": 3}
-            )
+            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 3})
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},

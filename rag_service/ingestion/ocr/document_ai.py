@@ -60,9 +60,7 @@ class DocumentAIClient:
             output_gcs_prefix += "/"
 
         gcs_doc = documentai.GcsDocument(gcs_uri=input_gcs_uri, mime_type="application/pdf")
-        input_docs = documentai.BatchDocumentsInputConfig(
-            gcs_documents=documentai.GcsDocuments(documents=[gcs_doc])
-        )
+        input_docs = documentai.BatchDocumentsInputConfig(gcs_documents=documentai.GcsDocuments(documents=[gcs_doc]))
         output_cfg = documentai.DocumentOutputConfig(
             gcs_output_config=documentai.DocumentOutputConfig.GcsOutputConfig(gcs_uri=output_gcs_prefix)
         )

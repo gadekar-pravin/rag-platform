@@ -97,9 +97,7 @@ async def embed_query(query_text: str) -> list[float]:
     return await _embed_with_retries(query_text, RAG_EMBEDDING_TASK_QUERY)
 
 
-def get_embeddings_batch(
-    texts: list[str], task_type: str = RAG_EMBEDDING_TASK_DOC
-) -> list[list[float]]:
+def get_embeddings_batch(texts: list[str], task_type: str = RAG_EMBEDDING_TASK_DOC) -> list[list[float]]:
     """Generate embeddings for multiple texts in a single API call.
 
     The Gemini API accepts a list of strings in ``contents`` and returns
@@ -116,9 +114,7 @@ def get_embeddings_batch(
 
     assert response.embeddings is not None, "Batch embedding response was empty"
     if len(response.embeddings) != len(texts):
-        raise ValueError(
-            f"Batch embedding count mismatch: got {len(response.embeddings)}, expected {len(texts)}"
-        )
+        raise ValueError(f"Batch embedding count mismatch: got {len(response.embeddings)}, expected {len(texts)}")
 
     results: list[list[float]] = []
     for i, emb_obj in enumerate(response.embeddings):
@@ -127,8 +123,7 @@ def get_embeddings_batch(
 
         if len(embedding) != RAG_EMBEDDING_DIM:
             raise ValueError(
-                f"Embedding dimension mismatch at index {i}: "
-                f"got {len(embedding)}, expected {RAG_EMBEDDING_DIM}."
+                f"Embedding dimension mismatch at index {i}: got {len(embedding)}, expected {RAG_EMBEDDING_DIM}."
             )
 
         vec = np.array(embedding, dtype=np.float32)

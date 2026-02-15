@@ -65,18 +65,16 @@ async def clean_tables(db_pool):
 @pytest_asyncio.fixture
 async def rls_conn(db_pool, test_tenant_id, test_user_id):
     """Provide a connection with RLS session variables set."""
-    async with db_pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", test_tenant_id)
-            await conn.execute("SET LOCAL app.user_id = $1", test_user_id)
-            yield conn
+    async with db_pool.acquire() as conn, conn.transaction():
+        await conn.execute("SET LOCAL app.tenant_id = $1", test_tenant_id)
+        await conn.execute("SET LOCAL app.user_id = $1", test_user_id)
+        yield conn
 
 
 @pytest_asyncio.fixture
 async def other_rls_conn(db_pool, other_tenant_id, other_user_id):
     """Provide a connection with different tenant RLS session variables."""
-    async with db_pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", other_tenant_id)
-            await conn.execute("SET LOCAL app.user_id = $1", other_user_id)
-            yield conn
+    async with db_pool.acquire() as conn, conn.transaction():
+        await conn.execute("SET LOCAL app.tenant_id = $1", other_tenant_id)
+        await conn.execute("SET LOCAL app.user_id = $1", other_user_id)
+        yield conn

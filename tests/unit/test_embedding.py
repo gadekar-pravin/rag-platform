@@ -32,6 +32,7 @@ class TestGetEmbedding:
         assert isinstance(result, list)
         # Verify L2 normalization (norm should be ~1.0)
         import numpy as np
+
         norm = np.linalg.norm(result)
         assert abs(norm - 1.0) < 0.01
 
@@ -211,7 +212,7 @@ class TestEmbedChunksBatching:
 
         mock_batch.side_effect = [
             [[0.1] * 768] * 100,  # First batch: 100
-            [[0.2] * 768] * 50,   # Second batch: 50
+            [[0.2] * 768] * 50,  # Second batch: 50
         ]
         result = await embed_chunks(["text"] * 150)
 
@@ -230,9 +231,11 @@ class TestGeminiClientDetection:
     @patch.dict("os.environ", {"K_SERVICE": "test-service"}, clear=False)
     def test_gcp_detection(self):
         from rag_service.embedding import _is_gcp_environment
+
         assert _is_gcp_environment()
 
     @patch.dict("os.environ", {}, clear=True)
     def test_local_detection(self):
         from rag_service.embedding import _is_gcp_environment
+
         assert not _is_gcp_environment()

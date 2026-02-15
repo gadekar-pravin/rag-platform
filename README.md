@@ -392,6 +392,16 @@ tests/                    # Unit (mock) + integration (real DB) tests
 scripts/                  # ScaNN indexes, dev data seeding
 ```
 
+## Security Note
+
+The MCP server on Cloud Run currently has `allUsers` with `roles/run.invoker`, meaning it is publicly accessible. The RAG service behind it is properly secured (OIDC + RLS), so data access is still tenant-scoped. See [Future Roadmap](#future-roadmap) for the planned fix.
+
+## Future Roadmap
+
+- [ ] **Lock down MCP server Cloud Run IAM** — Remove `allUsers` from `roles/run.invoker` on `rag-mcp` and grant access only to specific team members. Currently the MCP server is publicly accessible (the RAG service behind it is secured, but the MCP endpoint itself is open). Fix: `gcloud run services remove-iam-policy-binding rag-mcp --member="allUsers" --role="roles/run.invoker"` then add individual users.
+- [ ] **Automated token refresh for VS Code** — OIDC tokens expire after ~1 hour, requiring manual regeneration. Investigate VS Code MCP client support for automatic token refresh or longer-lived credentials.
+- [ ] **Per-user identity passthrough** — Currently the MCP server authenticates to the RAG service using its service account identity, so all MCP users share the same tenant/user context. Pass through individual user identity for per-user RLS scoping.
+
 ## Origin
 
 Extracted from [ApexFlow v2](https://github.com/gadekar-pravin/apexflow), with these key changes:

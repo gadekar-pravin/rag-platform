@@ -373,3 +373,27 @@ Ported code may diverge from ApexFlow over time. This is accepted as the trade-o
 - **Service Accounts:** `rag-service@`, `rag-mcp@`, `rag-ingest@` (least-privilege)
 - **Secrets:** `rag-alloydb-password`, `rag-oidc-audience` in Secret Manager
 - **Deployment guide:** `docs/deployment.md`
+- **User guide:** `docs/vscode-mcp-setup.md`
+
+## Security: Known Gaps
+
+**MCP server is publicly accessible.** The `rag-mcp` Cloud Run service has `allUsers` with `roles/run.invoker`. This means anyone with the URL can call the MCP tools. The RAG service behind it is properly secured (OIDC token verification + Row-Level Security), so data access is still tenant-scoped and the MCP server cannot bypass RLS. However, the MCP endpoint itself should be restricted to team members.
+
+**Fix (not yet applied):**
+```bash
+# Remove public access
+gcloud run services remove-iam-policy-binding rag-mcp \
+  --member="allUsers" --role="roles/run.invoker" --region=us-central1
+
+# Grant per-user access
+gcloud run services add-iam-policy-binding rag-mcp \
+  --member="user:engineer@example.com" --role="roles/run.invoker" --region=us-central1
+```
+
+After this, users must generate an OIDC token with `gcloud auth print-identity-token --audiences=MCP_URL` to connect from VS Code.
+
+## Future Roadmap
+
+- [ ] **Lock down MCP server IAM** — Remove `allUsers`, grant `roles/run.invoker` to individual team members only.
+- [ ] **Automated token refresh** — OIDC tokens expire after ~1 hour. Investigate VS Code MCP client support for automatic refresh or longer-lived credentials.
+- [ ] **Per-user identity passthrough** — The MCP server currently authenticates to the RAG service using its service account (`rag-mcp@`), so all MCP users share the same tenant/user context. Pass through individual user identity for per-user RLS scoping.

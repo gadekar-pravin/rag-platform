@@ -93,9 +93,8 @@ async def chunk_document_with_spans(
         # Semantic mode: offsets are not reliable
         return [(c, None, None) for c in chunks]
 
-    # Rule-based: track character offsets by scanning through the original text
-    chunks = _chunk_recursive(text, chunk_size, chunk_overlap)
-    return _assign_offsets(text, chunks, chunk_overlap)
+    # Rule-based: compute offsets during construction (avoids find() drift)
+    return _chunk_recursive_with_offsets(text, chunk_size, chunk_overlap)
 
 
 def _assign_offsets(
@@ -122,9 +121,7 @@ def _assign_offsets(
 
         # Adjust start back for overlap prefix
         start = (  # noqa: SIM108
-            idx - chunk_overlap
-            if core != chunk and idx >= chunk_overlap
-            else max(idx, 0) if core == chunk else idx
+            idx - chunk_overlap if core != chunk and idx >= chunk_overlap else max(idx, 0) if core == chunk else idx
         )
         end = start + len(chunk)
         result.append((chunk, start, end))
@@ -132,6 +129,124 @@ def _assign_offsets(
         search_from = idx + len(core)
 
     return result
+
+
+def _chunk_recursive_with_offsets(
+    text: str, chunk_size: int, chunk_overlap: int
+) -> list[tuple[str, int | None, int | None]]:
+    """Hierarchical recursive splitting with overlap, returning (text, start, end)."""
+    raw = _split_text_recursive_with_offsets(text, _SEPARATORS, chunk_size, base_offset=0)
+
+    if chunk_overlap <= 0 or len(raw) <= 1:
+        return [(t, s, e) for t, s, e in raw]
+
+    overlapped: list[tuple[str, int | None, int | None]] = [(raw[0][0], raw[0][1], raw[0][2])]
+    for i in range(1, len(raw)):
+        prev_text, _prev_start, prev_end = raw[i - 1]
+        curr_text, curr_start, curr_end = raw[i]
+        tail = prev_text[-chunk_overlap:] if len(prev_text) > chunk_overlap else prev_text
+        if tail and not curr_text.startswith(tail):
+            new_text = tail + curr_text
+            # Back up start to where the overlap tail begins in the original
+            new_start = prev_end - len(tail)
+            # Verify offset is valid (gaps from dropped whitespace-only parts
+            # can make the slice not match the constructed text)
+            if (
+                new_start >= 0
+                and new_start + len(new_text) <= len(text)
+                and text[new_start : new_start + len(new_text)] == new_text
+            ):
+                overlapped.append((new_text, new_start, new_start + len(new_text)))
+            else:
+                # Gap between chunks — offset can't be computed reliably
+                overlapped.append((new_text, None, None))
+        else:
+            overlapped.append((curr_text, curr_start, curr_end))
+
+    return overlapped
+
+
+def _split_text_recursive_with_offsets(
+    text: str,
+    separators: list[str],
+    chunk_size: int,
+    base_offset: int = 0,
+) -> list[tuple[str, int, int]]:
+    """Recursively split text, returning (chunk_text, start, end) with absolute offsets."""
+    if len(text) <= chunk_size or not separators:
+        return [(text, base_offset, base_offset + len(text))]
+
+    separator = separators[0]
+    next_separators = separators[1:]
+
+    if separator == "":
+        return [
+            (text[i : i + chunk_size], base_offset + i, base_offset + min(i + chunk_size, len(text)))
+            for i in range(0, len(text), chunk_size)
+        ]
+
+    if separator not in text:
+        return _split_text_recursive_with_offsets(text, next_separators, chunk_size, base_offset)
+
+    # Split by separator, tracking absolute offsets for each part
+    splits = text.split(separator)
+    parts: list[tuple[str, int]] = []  # (part_text, abs_offset)
+    pos = 0
+    for i, s in enumerate(splits):
+        part_start = pos
+        if i < len(splits) - 1:
+            part_text = s + separator
+            pos += len(s) + len(separator)
+        else:
+            part_text = s
+            pos += len(s)
+        parts.append((part_text, base_offset + part_start))
+
+    chunks: list[tuple[str, int, int]] = []
+    current = ""
+    current_start = 0
+
+    def commit(s: str, start: int) -> None:
+        if s and s.strip():
+            chunks.append((s, start, start + len(s)))
+
+    for part_text, part_offset in parts:
+        if not part_text:
+            continue
+
+        if len(part_text) > chunk_size:
+            if current:
+                commit(current, current_start)
+                current = ""
+            sub = _split_text_recursive_with_offsets(part_text, next_separators or [""], chunk_size, part_offset)
+            chunks.extend(sub)
+            continue
+
+        if not current:
+            current = part_text
+            current_start = part_offset
+            continue
+
+        candidate = current + part_text
+        if len(candidate) <= chunk_size:
+            current = candidate
+        else:
+            commit(current, current_start)
+            current = part_text
+            current_start = part_offset
+
+    if current:
+        commit(current, current_start)
+
+    # Enforce max chunk size
+    final: list[tuple[str, int, int]] = []
+    for text_c, start_c, _end_c in chunks:
+        if len(text_c) <= chunk_size:
+            final.append((text_c, start_c, start_c + len(text_c)))
+        else:
+            final.extend(_split_text_recursive_with_offsets(text_c, next_separators or [""], chunk_size, start_c))
+
+    return final
 
 
 def _validate_chunk_params(chunk_size: int, chunk_overlap: int) -> tuple[int, int]:

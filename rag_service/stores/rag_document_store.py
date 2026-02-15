@@ -161,18 +161,20 @@ class RagDocumentStore:
                     and existing["embedding_model"] == RAG_EMBEDDING_MODEL
                     and existing["embedding_dim"] == RAG_EMBEDDING_DIM
                 )
-                if settings_match and existing["content_hash"] == content_hash and (
-                    (source_hash is None) or (existing["source_hash"] == source_hash)
+                if (
+                    settings_match
+                    and existing["content_hash"] == content_hash
+                    and ((source_hash is None) or (existing["source_hash"] == source_hash))
                 ):
                     # Still refresh metadata/title/source_hash cheaply
+                    # Skip content write — content_hash confirms it's identical
                     await conn.execute(
                         """
                         UPDATE rag_documents
                         SET title = $2,
                             doc_type = $3,
                             metadata = $4::jsonb,
-                            content = $5,
-                            source_hash = $6,
+                            source_hash = $5,
                             updated_at = NOW()
                         WHERE id = $1
                         """,
@@ -180,7 +182,6 @@ class RagDocumentStore:
                         title,
                         doc_type,
                         meta_json,
-                        content,
                         source_hash,
                     )
                     return {
@@ -224,20 +225,20 @@ class RagDocumentStore:
                     updated_at = NOW()
                 RETURNING id
                 """,
-                uuid.uuid4(),          # $1
-                tenant_id,             # $2
-                title,                # $3
-                doc_type,             # $4
-                source_uri,           # $5
-                meta_json,            # $6
-                content,              # $7
-                source_hash,          # $8
-                content_hash,         # $9
+                uuid.uuid4(),  # $1
+                tenant_id,  # $2
+                title,  # $3
+                doc_type,  # $4
+                source_uri,  # $5
+                meta_json,  # $6
+                content,  # $7
+                source_hash,  # $8
+                content_hash,  # $9
                 RAG_EMBEDDING_MODEL,  # $10
-                RAG_EMBEDDING_DIM,    # $11
+                RAG_EMBEDDING_DIM,  # $11
                 RAG_INGESTION_VERSION,  # $12
-                chunk_method,         # $13
-                len(chunks),          # $14
+                chunk_method,  # $13
+                len(chunks),  # $14
             )
             if row is None:
                 raise RuntimeError("Failed to upsert TEAM document by source_uri")
@@ -380,22 +381,22 @@ class RagDocumentStore:
                 WHERE {resolve_where}
                 LIMIT 1
                 """,
-                doc_id,                 # $1
-                tenant_id,              # $2
-                visibility,             # $3
-                owner_user_id,          # $4
-                title,                  # $5
-                doc_type,               # $6
-                None,                   # $7 (unused)
-                meta_json,              # $8
-                content,                # $9
-                content_hash,           # $10
-                RAG_EMBEDDING_MODEL,    # $11
-                RAG_EMBEDDING_DIM,      # $12
+                doc_id,  # $1
+                tenant_id,  # $2
+                visibility,  # $3
+                owner_user_id,  # $4
+                title,  # $5
+                doc_type,  # $6
+                None,  # $7 (unused)
+                meta_json,  # $8
+                content,  # $9
+                content_hash,  # $10
+                RAG_EMBEDDING_MODEL,  # $11
+                RAG_EMBEDDING_DIM,  # $12
                 RAG_INGESTION_VERSION,  # $13
-                chunk_method,           # $14
-                len(chunks),            # $15
-                source_hash,            # $16
+                chunk_method,  # $14
+                len(chunks),  # $15
+                source_hash,  # $16
             )
             if row is None:
                 raise RuntimeError("Failed to insert or resolve deduplicated document row")
@@ -525,7 +526,7 @@ class RagDocumentStore:
         for idx, (text, emb) in enumerate(zip(chunks, embeddings, strict=True)):
             chunk_id = uuid.uuid4()
             emb_id = uuid.uuid4()
-            start, end = (chunk_offsets[idx] if chunk_offsets else (None, None))
+            start, end = chunk_offsets[idx] if chunk_offsets else (None, None)
             chunk_rows.append((chunk_id, doc_id, idx, text, start, end))
             embedding_rows.append((emb_id, chunk_id, emb))
 

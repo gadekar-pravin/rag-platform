@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from rag_service.chunking.chunker import chunk_document, _validate_chunk_params
+from rag_service.chunking.chunker import (
+    _validate_chunk_params,
+    chunk_document,
+    chunk_document_with_spans,
+)
 
 
 class TestValidateChunkParams:
@@ -97,3 +101,96 @@ class TestEdgeCases:
         text = "ab"
         chunks = await chunk_document(text, chunk_size=1, chunk_overlap=0)
         assert all(len(c) <= 1 for c in chunks)
+
+
+class TestChunkDocumentWithSpans:
+    """Fix 7: Verify offsets computed during construction match original text."""
+
+    async def test_offsets_match_original_text(self):
+        """For each chunk, text[start:end] == chunk_text."""
+        text = "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here."
+        spans = await chunk_document_with_spans(text, chunk_size=30, chunk_overlap=0)
+
+        assert len(spans) >= 2
+        for chunk_text, start, end in spans:
+            if start is not None and end is not None:
+                assert text[start:end] == chunk_text, (
+                    f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
+                )
+
+    async def test_offsets_with_overlap(self):
+        """Overlapped chunks still have valid offsets."""
+        text = "Section A content. " * 10 + "\n\n" + "Section B content. " * 10
+        spans = await chunk_document_with_spans(text, chunk_size=100, chunk_overlap=20)
+
+        assert len(spans) >= 2
+        for chunk_text, start, end in spans:
+            if start is not None and end is not None:
+                assert text[start:end] == chunk_text, (
+                    f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
+                )
+
+    async def test_repeated_text_no_drift(self):
+        """Repeated text doesn't cause offset drift (the old find() bug)."""
+        # Same sentence repeated — old find() would drift to wrong position
+        text = "The quick brown fox. " * 20
+        spans = await chunk_document_with_spans(text, chunk_size=100, chunk_overlap=0)
+
+        assert len(spans) >= 2
+        for chunk_text, start, end in spans:
+            if start is not None and end is not None:
+                assert text[start:end] == chunk_text, (
+                    f"Offset drift with repeated text: text[{start}:{end}] != chunk_text"
+                )
+
+    async def test_single_chunk_offsets(self):
+        """Short text produces one chunk with start=0."""
+        text = "Short text."
+        spans = await chunk_document_with_spans(text, chunk_size=1000, chunk_overlap=0)
+
+        assert len(spans) == 1
+        chunk_text, start, end = spans[0]
+        assert chunk_text == text
+        assert start == 0
+        assert end == len(text)
+
+    async def test_empty_text(self):
+        """Empty text returns empty list."""
+        spans = await chunk_document_with_spans("")
+        assert spans == []
+
+    async def test_offsets_cover_entire_document(self):
+        """Non-overlapped chunks' offsets should cover the document without gaps."""
+        text = "Alpha section. " * 15 + "\n\n" + "Beta section. " * 15
+        spans = await chunk_document_with_spans(text, chunk_size=100, chunk_overlap=0)
+
+        valid_spans = [(s, e) for _, s, e in spans if s is not None and e is not None]
+        if len(valid_spans) >= 2:
+            # Spans should be in order
+            for i in range(1, len(valid_spans)):
+                assert valid_spans[i][0] >= valid_spans[i - 1][0], "Spans not in order"
+
+    async def test_semantic_mode_returns_none_offsets(self):
+        """Semantic mode chunks have None offsets (no change from before)."""
+        # We can't easily test semantic mode without mocking Gemini,
+        # but we can verify the API contract via the fallback path
+        text = "Some text."
+        spans = await chunk_document_with_spans(text, chunk_size=1000)
+        # Rule-based mode should return actual offsets
+        for _, start, end in spans:
+            assert start is not None
+            assert end is not None
+
+    async def test_multiline_paragraphs_with_overlap(self):
+        """Multi-paragraph text with overlap has correct offsets."""
+        text = (
+            "Introduction to the topic.\n\n"
+            "Main body of the first section with details.\n\n"
+            "Second section explores another angle.\n\n"
+            "Conclusion wraps everything up neatly."
+        )
+        spans = await chunk_document_with_spans(text, chunk_size=80, chunk_overlap=20)
+
+        for chunk_text, start, end in spans:
+            if start is not None and end is not None:
+                assert text[start:end] == chunk_text

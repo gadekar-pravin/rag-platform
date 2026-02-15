@@ -36,6 +36,7 @@ RAG_EMBED_MAX_RETRIES: int = int(os.getenv("RAG_EMBED_MAX_RETRIES", "2"))
 RAG_EMBED_RETRY_BASE_SECONDS: float = float(os.getenv("RAG_EMBED_RETRY_BASE_SECONDS", "0.5"))
 
 # -- Search -------------------------------------------------------------------
+RAG_FTS_LANGUAGE: str = os.getenv("RAG_FTS_LANGUAGE", "english")
 RAG_RRF_K: int = int(os.getenv("RAG_RRF_K", "60"))
 RAG_SEARCH_EXPANSION: int = int(os.getenv("RAG_SEARCH_EXPANSION", "3"))
 RAG_SEARCH_PER_DOC_CAP: int = int(os.getenv("RAG_SEARCH_PER_DOC_CAP", "3"))
@@ -51,9 +52,7 @@ RAG_CHUNK_OVERLAP: int = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
 # -- Auth ---------------------------------------------------------------------
 RAG_SHARED_TOKEN: str | None = os.getenv("RAG_SHARED_TOKEN")
 RAG_OIDC_AUDIENCE: str | None = os.getenv("RAG_OIDC_AUDIENCE")
-RAG_ALLOWED_ISSUERS: set[str] = set(
-    _env_csv("RAG_ALLOWED_ISSUERS", "https://accounts.google.com,accounts.google.com")
-)
+RAG_ALLOWED_ISSUERS: set[str] = set(_env_csv("RAG_ALLOWED_ISSUERS", "https://accounts.google.com,accounts.google.com"))
 
 # -- GCP ----------------------------------------------------------------------
 VERTEX_PROJECT: str = os.getenv("GOOGLE_CLOUD_PROJECT", "apexflow-ai")

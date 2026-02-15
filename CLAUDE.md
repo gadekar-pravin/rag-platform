@@ -69,9 +69,14 @@ docker build -f rag_service/Dockerfile.ingestor -t rag-ingestor:local .
 ## Testing
 
 - **`asyncio_mode = "auto"`** in pyproject.toml — async test functions work without `@pytest.mark.asyncio`.
+- **`asyncio_default_test_loop_scope = "session"`** — all tests share a single event loop, required because `db_pool` is session-scoped. Without this, asyncpg connections created in the session loop fail with "Future attached to a different loop" in per-function loops.
 - **Integration tests gracefully skip** when the database is unavailable (`pytest.skip()` on connection failure, not a hard error).
 - **Fixture scoping:** `db_pool` is session-scoped (one pool per test run). `clean_tables` is function-scoped (TRUNCATE CASCADE before each test). `rls_conn` wraps each test in a transaction with `SET LOCAL` so RLS is active.
 - **`DATABASE_TEST_URL`** env var overrides the test DB connection (defaults to `postgresql://apexflow:apexflow@localhost:5432/apexflow`).
+- **SSH tunnel required:** AlloyDB Omni runs on a GCP VM (`alloydb-omni-dev`), not locally. Before running integration tests, open an IAP tunnel to forward port 5432:
+  ```bash
+  gcloud compute ssh alloydb-omni-dev --zone=us-central1-a --tunnel-through-iap -- -L 5432:localhost:5432
+  ```
 
 ## Architecture
 
@@ -272,6 +277,7 @@ tests/
     test_dedup.py         # COALESCE NULL, cascade, per-owner dedup
     test_hybrid_search.py # Vector ranking, FTS, RRF fusion, best-chunks
     test_ingestion_dedup.py  # GCS canonical upsert, unchanged skip, atomicity
+    test_ingestion_runner.py # Runner E2E: extract→chunk→store, run tracking, incremental skip
 
 scripts/
   create-scann-indexes.sql  # ScaNN index (AlloyDB only, run after data)

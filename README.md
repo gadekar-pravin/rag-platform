@@ -306,7 +306,10 @@ See `docs/alloy_db_manual_ingestion_implementation_plan_v_1.md` for the full imp
 pytest tests/unit/ -v
 
 # Integration tests (requires AlloyDB — gracefully skips if unavailable)
-pytest tests/integration/ -v
+# First, open an SSH tunnel to the AlloyDB VM:
+gcloud compute ssh alloydb-omni-dev --zone=us-central1-a --tunnel-through-iap -- -L 5432:localhost:5432
+# Then set DATABASE_TEST_URL in .env or pass it directly:
+DATABASE_TEST_URL="postgresql://apexflow:<password>@localhost:5432/apexflow" pytest tests/integration/ -v
 
 # Full suite
 pytest tests/ -v

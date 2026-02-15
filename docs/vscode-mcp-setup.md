@@ -6,61 +6,34 @@ Connect your VS Code agent (GitHub Copilot) to the team's RAG knowledge base. On
 
 - **VS Code** 1.99 or later
 - **GitHub Copilot extension** (with agent mode / chat enabled)
-- **GCP access** to the `apexflow-ai` project (for generating auth tokens)
-- **gcloud CLI** installed and authenticated (`gcloud auth login`)
+- **No token required (current state):** `rag-mcp` is currently public (`allUsers`) and accepts unauthenticated MCP calls.
+- **Optional, only if IAM auth is enabled later:** GCP access to `apexflow-ai` + `gcloud` CLI for OIDC token generation.
 
-## Step 1: Generate an Auth Token
+## Step 1: Add the MCP Configuration (Current Public Setup)
 
-The MCP server runs on Cloud Run with authentication enabled. You need a short-lived OIDC identity token to connect.
-
-Run this in your terminal:
-
-```bash
-gcloud auth print-identity-token \
-  --audiences="https://rag-mcp-j56xbd7o2a-uc.a.run.app"
-```
-
-This prints a token that looks like `eyJhbGciOi...`. Copy it — you'll paste it into VS Code in Step 3.
-
-**Token lifetime:** Tokens expire after ~1 hour. When your connection stops working, generate a new token and restart the MCP server in VS Code (see [Refreshing Your Token](#refreshing-your-token)).
-
-## Step 2: Add the MCP Configuration
-
-Create (or update) the file `.vscode/mcp.json` in your workspace root:
+Create (or update) `.vscode/mcp.json` in your workspace root:
 
 ```json
 {
   "servers": {
     "rag-search": {
       "type": "http",
-      "url": "https://rag-mcp-j56xbd7o2a-uc.a.run.app/mcp",
-      "headers": {
-        "Authorization": "Bearer ${input:rag-token}"
-      }
+      "url": "https://rag-mcp-j56xbd7o2a-uc.a.run.app/mcp"
     }
-  },
-  "inputs": [
-    {
-      "id": "rag-token",
-      "type": "promptString",
-      "description": "RAG MCP auth token (run: gcloud auth print-identity-token --audiences=https://rag-mcp-j56xbd7o2a-uc.a.run.app)",
-      "password": true
-    }
-  ]
+  }
 }
 ```
 
-> **Note:** This file can be committed to your repo so the whole team shares the same configuration. The token itself is never stored — VS Code prompts for it at connection time.
+> **Note:** This file can be committed so the team shares one config.
 
-## Step 3: Connect
+## Step 2: Connect
 
 1. Open VS Code and open the Copilot chat panel (Ctrl+Shift+I / Cmd+Shift+I).
 2. Switch to **Agent mode** (click the mode selector at the top of the chat panel).
-3. VS Code will detect the MCP server configuration and prompt you for the auth token.
-4. Paste the token you generated in Step 1.
-5. The `rag-search` server should appear as connected. You'll see the tools listed when you click the tools icon in the chat input.
+3. VS Code should detect the MCP server configuration automatically.
+4. The `rag-search` server should appear as connected. You'll see the tools listed when you click the tools icon in the chat input.
 
-## Step 4: Test the Connection
+## Step 3: Test the Connection
 
 Try these prompts in Copilot chat (agent mode) to verify everything works:
 
@@ -141,13 +114,56 @@ Here are some effective ways to use the knowledge base from Copilot:
 | Find recent docs | "List the last 5 documents added to the knowledge base" |
 | Get details | "Search the knowledge base for error handling and show me the full context" |
 
-## Refreshing Your Token
+## Optional: If IAM Auth Is Enabled Later
 
-When your token expires (after ~1 hour), you'll see "Authentication failed" errors. To reconnect:
+If the MCP Cloud Run service is later locked down (recommended), use this auth-enabled config instead:
+
+```json
+{
+  "servers": {
+    "rag-search": {
+      "type": "http",
+      "url": "https://rag-mcp-j56xbd7o2a-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:rag-token}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "rag-token",
+      "type": "promptString",
+      "description": "RAG MCP OIDC token",
+      "password": true
+    }
+  ]
+}
+```
+
+For that mode, users typically need:
+
+- `roles/run.invoker` on `rag-mcp`
+- A service account they can impersonate
+- `roles/iam.serviceAccountTokenCreator` on that service account
+
+Generate a token:
+
+```bash
+gcloud auth print-identity-token \
+  --impersonate-service-account=SA_NAME@apexflow-ai.iam.gserviceaccount.com \
+  --audiences="https://rag-mcp-j56xbd7o2a-uc.a.run.app"
+```
+
+Then paste it when VS Code prompts.
+
+## Refreshing Your Token (IAM Mode Only)
+
+When IAM auth is enabled and your token expires (after ~1 hour), you'll see "Authentication failed" errors. To reconnect:
 
 1. Generate a new token:
    ```bash
    gcloud auth print-identity-token \
+     --impersonate-service-account=SA_NAME@apexflow-ai.iam.gserviceaccount.com \
      --audiences="https://rag-mcp-j56xbd7o2a-uc.a.run.app"
    ```
 2. In VS Code, open the Command Palette (Ctrl+Shift+P / Cmd+Shift+P).
@@ -159,8 +175,10 @@ When your token expires (after ~1 hour), you'll see "Authentication failed" erro
 
 ### "Authentication failed"
 
-- Your token has expired. Generate a new one (see [Refreshing Your Token](#refreshing-your-token)).
-- Make sure you're using the right audience in the `gcloud` command. It must be the MCP server URL, not the RAG service URL.
+- This applies only when IAM auth is enabled on `rag-mcp`.
+- Your token may be expired. Generate a new one (see [Refreshing Your Token](#refreshing-your-token-iam-mode-only)).
+- Make sure the audience in `gcloud auth print-identity-token` is the MCP Cloud Run service URL host (for example `https://rag-mcp-j56xbd7o2a-uc.a.run.app`), not the RAG service URL.
+- Ensure your principal (or impersonated service account) has `roles/run.invoker` on `rag-mcp`.
 
 ### "The search service is temporarily unavailable"
 
@@ -181,8 +199,9 @@ When your token expires (after ~1 hour), you'll see "Authentication failed" erro
 
 ### "gcloud auth print-identity-token" fails
 
-- Run `gcloud auth login` first to authenticate.
-- Make sure you have access to the `apexflow-ai` GCP project. Ask your team lead for IAM access if needed.
+- This is expected with regular user credentials when using `--audiences`.
+- Use `--impersonate-service-account` and ensure you have `roles/iam.serviceAccountTokenCreator` on that service account.
+- Make sure you have access to the `apexflow-ai` GCP project.
 
 ## How It Works (Architecture)
 
@@ -190,7 +209,7 @@ When your token expires (after ~1 hour), you'll see "Authentication failed" erro
 VS Code Copilot
      |
      | MCP protocol (streamable HTTP)
-     | + your OIDC token (Cloud Run IAM)
+     | + optional user OIDC token (only when IAM lock-down is enabled)
      v
 MCP Server (rag-mcp on Cloud Run)
      |
@@ -204,7 +223,8 @@ RAG Service (rag-service on Cloud Run)
 AlloyDB (rag_* tables)
 ```
 
-- **Your token** authenticates you to the MCP server (Cloud Run IAM).
+- **Current state:** `rag-mcp` is public (`allUsers`), so VS Code can connect without a user token.
 - **The MCP server** automatically mints its own OIDC token to call the RAG service — you don't need to configure this.
 - **The RAG service** uses PostgreSQL Row-Level Security to ensure you only see documents belonging to your tenant.
-- **Document visibility:** TEAM documents are visible to everyone in the tenant. PRIVATE documents are visible only to their owner.
+- **Current MCP identity model:** the MCP server calls the RAG service using service identity, not per-user passthrough.
+- **Document visibility caveat:** TEAM docs are tenant-visible; PRIVATE-owner scoping is not yet enforced per individual VS Code user in this integration.

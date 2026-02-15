@@ -9,13 +9,14 @@ from rag_service.ingestion.cli import build_parser
 from rag_service.ingestion.config import IngestConfig
 from rag_service.ingestion.gcs import list_tenant_prefixes
 from rag_service.ingestion.runner import IngestionRunner
+from rag_service.logging_config import setup_logging
 
 
 async def _amain() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    setup_logging(level=args.log_level.upper())
     logger = logging.getLogger("rag_service.ingestion")
 
     cfg = IngestConfig.from_env()

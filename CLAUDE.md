@@ -8,7 +8,7 @@ RAG Platform is a standalone, multi-tenant Retrieval-Augmented Generation servic
 
 **Why separate?** Data engineers need document search through VS Code Copilot without access to the ApexFlow app. The RAG service has its own auth (Cloud Run OIDC, not Firebase), multi-tenant Row-Level Security (not single-tenant `user_id` scoping), and no dependency on ApexFlow's `ServiceRegistry` or `settings.json`.
 
-**Current state:** MVP + ingestion complete. Schema + retrieval store + HTTP API + MCP server + GCS batch ingestion pipeline are implemented. Documents can be loaded via the `POST /v1/index` endpoint, direct DB inserts, or the GCS ingestion CLI (`python -m rag_service.ingestion.main`).
+**Current state:** MVP + ingestion + production hardening complete. Schema + retrieval store + HTTP API + MCP server + GCS batch ingestion pipeline are implemented and hardened with rate limiting, request body size limits, structured JSON logging, request ID correlation, and health check improvements. Documents can be loaded via the `POST /v1/index` endpoint, direct DB inserts, or the GCS ingestion CLI (`python -m rag_service.ingestion.main`).
 
 ## Common Commands
 
@@ -202,9 +202,10 @@ rag_service/              # Core RAG API service
   auth.py                 # Cloud Run OIDC + shared dev token
   config.py               # All env-var-driven configuration
   db.py                   # Asyncpg pool + rls_connection() context manager
-  embedding.py            # Gemini embedding with dim guard
-  models.py               # Pydantic request/response schemas
-  Dockerfile              # Multi-stage build (API server)
+  embedding.py            # Gemini embedding with dim guard + health check
+  logging_config.py       # Structured JSON logging (GCP severity mapping)
+  models.py               # Pydantic request/response schemas (with input limits)
+  Dockerfile              # Multi-stage build (API server) + HEALTHCHECK
   Dockerfile.ingestor     # Multi-stage build (batch ingestion job)
   chunking/
     chunker.py            # Rule-based + semantic chunking, with optional span offsets
@@ -231,9 +232,9 @@ rag_service/              # Core RAG API service
 
 rag_mcp/                  # MCP server for VS Code Copilot
   server.py               # FastMCP with streamable HTTP transport
-  tools.py                # rag_search + rag_list_documents tool implementations
+  tools.py                # rag_search + rag_list_documents (retry + sanitized errors)
   config.py               # RAG_SERVICE_URL, auth config
-  Dockerfile              # Lightweight image
+  Dockerfile              # Lightweight image + HEALTHCHECK + pinned deps
 
 alembic/                  # Database migrations (independent chain)
   env.py                  # 3-priority connection logic (psycopg2)
@@ -250,6 +251,7 @@ tests/
     test_auth.py          # OIDC, shared token safety, public paths
     test_chunker.py       # Edge cases, overlap, splitting
     test_ingestion.py     # Source hash, extractors, planner, config, normalize_text
+    test_endpoints.py     # FastAPI endpoints, middleware, auth, body size, rate limits
   integration/            # Requires AlloyDB (gracefully skips when unavailable)
     test_rls.py           # FORCE RLS, tenant isolation, PRIVATE visibility
     test_dedup.py         # COALESCE NULL, cascade, per-owner dedup
@@ -260,8 +262,14 @@ scripts/
   create-scann-indexes.sql  # ScaNN index (AlloyDB only, run after data)
   seed-dev-data.py          # Load sample documents for local dev
 
+.github/
+  workflows/
+    ci.yml                  # Lint + type check + unit tests
+
 .vscode/
   mcp.json                  # Example MCP config for data engineers
+
+.env.example                # Template for required environment variables
 ```
 
 ## Code Conventions

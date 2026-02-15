@@ -133,3 +133,14 @@ async def _embed_with_retries(text: str, task_type: str) -> list[float]:
             await asyncio.sleep(backoff_seconds)
 
     raise RuntimeError("Unreachable embedding retry path")
+
+
+async def check_embedding_service() -> bool:
+    """Quick health check: verify the embedding API is reachable."""
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, get_embedding, "health check", RAG_EMBEDDING_TASK_QUERY)
+        return True
+    except Exception:
+        logger.warning("Embedding health check failed", exc_info=True)
+        return False

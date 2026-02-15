@@ -3,31 +3,30 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from google.cloud import storage
 
-from rag_service.chunking.chunker import chunk_document  # keep stable API; spans optional later
+from rag_service.chunking.chunker import chunk_document_with_spans
 from rag_service.db import rls_connection
 from rag_service.embedding import embed_chunks
 from rag_service.ingestion.config import IngestConfig
-from rag_service.ingestion.gcs import download_bytes, upload_text
-from rag_service.ingestion.planner import compute_source_hash, discover_work_items
-from rag_service.ingestion.types import ProcessResult, WorkItem
-from rag_service.ingestion.ocr.document_ai import DocAIConfig, DocumentAIClient
 from rag_service.ingestion.extractors.docx import DocxExtractor
 from rag_service.ingestion.extractors.html import HtmlExtractor
 from rag_service.ingestion.extractors.image import ImageExtractor
 from rag_service.ingestion.extractors.pdf import PdfExtractor
 from rag_service.ingestion.extractors.text import TextExtractor
+from rag_service.ingestion.gcs import download_bytes, upload_text
+from rag_service.ingestion.ocr.document_ai import DocAIConfig, DocumentAIClient
+from rag_service.ingestion.planner import compute_source_hash, discover_work_items
+from rag_service.ingestion.types import ProcessResult, WorkItem
 from rag_service.stores.rag_document_store import RagDocumentStore
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class IngestionRunner:
@@ -264,10 +263,13 @@ class IngestionRunner:
             stored_content = stored_content[: self._cfg.max_content_chars]
             truncated = True
 
-        # Chunk + embed
-        chunks = await chunk_document(text, method="rule_based")
-        if not chunks:
+        # Chunk + embed (with character offsets for search highlighting)
+        chunks_with_spans = await chunk_document_with_spans(text, method="rule_based")
+        if not chunks_with_spans:
             raise RuntimeError("Chunking produced zero chunks")
+
+        chunks = [c[0] for c in chunks_with_spans]
+        chunk_offsets: list[tuple[int | None, int | None]] = [(c[1], c[2]) for c in chunks_with_spans]
 
         embeddings = await embed_chunks(chunks)
 
@@ -311,8 +313,8 @@ class IngestionRunner:
                 doc_type=item.doc_type,
                 metadata=meta,
                 chunk_method="rule_based",
-                chunk_offsets=None,  # optional spans wiring later
-                skip_if_unchanged=False,
+                chunk_offsets=chunk_offsets,
+                skip_if_unchanged=not (force or self._cfg.force_reindex),
             )
 
         doc_id = out["document_id"]

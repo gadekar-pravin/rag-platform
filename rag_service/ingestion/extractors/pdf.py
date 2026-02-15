@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
+import logging
 
 from pypdf import PdfReader
 
 from rag_service.ingestion.extractors.base import Extractor, normalize_text
 from rag_service.ingestion.ocr.document_ai import DocumentAIClient
 from rag_service.ingestion.types import ExtractResult, WorkItem
+
+logger = logging.getLogger(__name__)
 
 
 class PdfExtractor(Extractor):
@@ -31,7 +34,8 @@ class PdfExtractor(Extractor):
                 if t.strip():
                     parts.append(t)
             extracted = "\n".join(parts)
-        except Exception:
+        except Exception as e:
+            logger.warning("PyPDF text extraction failed, falling back to OCR: %s", e)
             extracted = ""
 
         extracted_norm = normalize_text(extracted)

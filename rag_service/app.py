@@ -18,6 +18,10 @@ from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from rag_service.auth import Identity, get_identity, is_public_path, require_auth_on_cloud_run
 from rag_service.chunking.chunker import chunk_document
@@ -30,7 +34,8 @@ from rag_service.config import (
     RAG_CORS_ALLOW_ORIGINS,
 )
 from rag_service.db import check_db_connection, close_pool, get_pool, rls_connection
-from rag_service.embedding import embed_chunks, embed_query
+from rag_service.embedding import check_embedding_service, embed_chunks, embed_query
+from rag_service.logging_config import generate_request_id, setup_logging
 from rag_service.models import (
     ChunkResult,
     DeleteResponse,
@@ -56,6 +61,7 @@ _search_store = RagSearchStore()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: init pool on startup, close on shutdown."""
+    setup_logging()
     require_auth_on_cloud_run()
     await get_pool()
     logger.info("RAG service started")
@@ -70,6 +76,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# -- Rate limiting ------------------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+
+
 if RAG_CORS_ALLOW_CREDENTIALS and "*" in RAG_CORS_ALLOW_ORIGINS:
     raise RuntimeError("Invalid CORS config: wildcard origin cannot be combined with credentials=true")
 
@@ -80,6 +97,20 @@ app.add_middleware(
     allow_methods=RAG_CORS_ALLOW_METHODS,
     allow_headers=RAG_CORS_ALLOW_HEADERS,
 )
+
+
+# -- Body size limit ----------------------------------------------------------
+
+_MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@app.middleware("http")
+async def body_size_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Reject requests with bodies exceeding the size limit."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None and int(content_length) > _MAX_BODY_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    return await call_next(request)
 
 
 # -- Auth middleware ----------------------------------------------------------
@@ -94,13 +125,26 @@ async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyp
     try:
         identity = await get_identity(request)
         request.state.identity = identity
-    except HTTPException:
-        raise
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     except Exception as e:
         logger.warning("Auth middleware error: %s", e)
-        raise HTTPException(status_code=401, detail="Authentication failed") from e
+        return JSONResponse(status_code=401, content={"detail": "Authentication failed"})
 
     return await call_next(request)
+
+
+# -- Request ID middleware ----------------------------------------------------
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Attach a unique request ID for trace correlation."""
+    request_id = request.headers.get("x-request-id") or generate_request_id()
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["x-request-id"] = request_id
+    return response
 
 
 def _get_identity(request: Request) -> Identity:
@@ -121,9 +165,12 @@ async def liveness() -> HealthResponse:
 
 @app.get("/readiness", response_model=HealthResponse)
 async def readiness() -> HealthResponse:
-    healthy = await check_db_connection()
-    if not healthy:
+    db_ok = await check_db_connection()
+    if not db_ok:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    embedding_ok = await check_embedding_service()
+    if not embedding_ok:
+        return HealthResponse(status="degraded", error="Embedding service unavailable")
     return HealthResponse(status="ok")
 
 
@@ -131,7 +178,9 @@ async def readiness() -> HealthResponse:
 
 
 @app.post("/v1/search", response_model=SearchResponse)
+@limiter.limit("30/minute")
 async def search(
+    request: Request,
     body: SearchRequest,
     identity: Annotated[Identity, Depends(_get_identity)],
 ) -> SearchResponse:
@@ -200,6 +249,8 @@ async def list_documents(
     offset: int = 0,
 ) -> DocumentListResponse:
     """List visible documents (TEAM + owned PRIVATE, enforced by RLS)."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:
         docs, total = await _doc_store.list_documents(conn, limit=limit, offset=offset)
 
@@ -241,7 +292,9 @@ async def delete_document(
 
 
 @app.post("/v1/index", response_model=IndexResponse)
+@limiter.limit("10/minute")
 async def index_document(
+    request: Request,
     body: IndexRequest,
     identity: Annotated[Identity, Depends(_get_identity)],
 ) -> IndexResponse:

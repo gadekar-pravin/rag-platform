@@ -2,6 +2,9 @@
 
 Revision ID: 001
 Create Date: 2026-02-15
+
+Consolidated migration: creates all 5 tables, partial unique indexes for
+dedup/upsert, and RLS policies on every table in a single step.
 """
 
 from alembic import op
@@ -55,11 +58,32 @@ def upgrade() -> None:
         )
     """)
 
-    # Dedup index: COALESCE fixes NULL uniqueness for TEAM rows
+    # -- Dedup indexes (3 partial unique indexes) -----------------------------
+
+    # TEAM docs with source_uri: one canonical doc per (tenant, source_uri)
     op.execute("""
-        CREATE UNIQUE INDEX ux_rag_docs_dedup
-        ON rag_documents (tenant_id, visibility, content_hash, COALESCE(owner_user_id, ''))
+        CREATE UNIQUE INDEX ux_rag_docs_team_source_uri
+        ON rag_documents (tenant_id, source_uri)
         WHERE deleted_at IS NULL
+          AND visibility = 'TEAM'
+          AND source_uri IS NOT NULL
+    """)
+
+    # TEAM ad-hoc docs (no source_uri): dedup by content_hash
+    op.execute("""
+        CREATE UNIQUE INDEX ux_rag_docs_team_dedup_adhoc
+        ON rag_documents (tenant_id, content_hash)
+        WHERE deleted_at IS NULL
+          AND visibility = 'TEAM'
+          AND source_uri IS NULL
+    """)
+
+    # PRIVATE docs: dedup by (tenant, owner, content_hash)
+    op.execute("""
+        CREATE UNIQUE INDEX ux_rag_docs_private_dedup
+        ON rag_documents (tenant_id, owner_user_id, content_hash)
+        WHERE deleted_at IS NULL
+          AND visibility = 'PRIVATE'
     """)
 
     # Filter index for common queries
@@ -144,7 +168,7 @@ def upgrade() -> None:
         )
     """)
 
-    # -- Row-Level Security ---------------------------------------------------
+    # -- Row-Level Security: rag_documents ------------------------------------
 
     op.execute("ALTER TABLE rag_documents ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE rag_documents FORCE ROW LEVEL SECURITY")
@@ -216,14 +240,366 @@ def upgrade() -> None:
         )
     """)
 
+    # -- Row-Level Security: rag_document_chunks ------------------------------
+
+    op.execute("ALTER TABLE rag_document_chunks ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE rag_document_chunks FORCE ROW LEVEL SECURITY")
+
+    op.execute("""
+        CREATE POLICY rag_chunks_select ON rag_document_chunks
+        FOR SELECT
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_documents d
+                WHERE d.id = rag_document_chunks.document_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_chunks_insert ON rag_document_chunks
+        FOR INSERT
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_documents d
+                WHERE d.id = rag_document_chunks.document_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_chunks_update ON rag_document_chunks
+        FOR UPDATE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_documents d
+                WHERE d.id = rag_document_chunks.document_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_documents d
+                WHERE d.id = rag_document_chunks.document_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_chunks_delete ON rag_document_chunks
+        FOR DELETE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_documents d
+                WHERE d.id = rag_document_chunks.document_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    # -- Row-Level Security: rag_chunk_embeddings -----------------------------
+
+    op.execute("ALTER TABLE rag_chunk_embeddings ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE rag_chunk_embeddings FORCE ROW LEVEL SECURITY")
+
+    op.execute("""
+        CREATE POLICY rag_embeddings_select ON rag_chunk_embeddings
+        FOR SELECT
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_document_chunks c
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE c.id = rag_chunk_embeddings.chunk_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_embeddings_insert ON rag_chunk_embeddings
+        FOR INSERT
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_document_chunks c
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE c.id = rag_chunk_embeddings.chunk_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_embeddings_update ON rag_chunk_embeddings
+        FOR UPDATE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_document_chunks c
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE c.id = rag_chunk_embeddings.chunk_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_document_chunks c
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE c.id = rag_chunk_embeddings.chunk_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_embeddings_delete ON rag_chunk_embeddings
+        FOR DELETE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_document_chunks c
+                JOIN rag_documents d ON d.id = c.document_id
+                WHERE c.id = rag_chunk_embeddings.chunk_id
+                  AND d.tenant_id = current_setting('app.tenant_id', true)
+                  AND d.deleted_at IS NULL
+                  AND (
+                      d.visibility = 'TEAM'
+                      OR (
+                          d.visibility = 'PRIVATE'
+                          AND d.owner_user_id = current_setting('app.user_id', true)
+                      )
+                  )
+            )
+        )
+    """)
+
+    # -- Row-Level Security: rag_ingestion_runs -------------------------------
+
+    op.execute("ALTER TABLE rag_ingestion_runs ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE rag_ingestion_runs FORCE ROW LEVEL SECURITY")
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_runs_select ON rag_ingestion_runs
+        FOR SELECT
+        USING (
+            tenant_id = current_setting('app.tenant_id', true)
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_runs_insert ON rag_ingestion_runs
+        FOR INSERT
+        WITH CHECK (
+            tenant_id = current_setting('app.tenant_id', true)
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_runs_update ON rag_ingestion_runs
+        FOR UPDATE
+        USING (
+            tenant_id = current_setting('app.tenant_id', true)
+        )
+        WITH CHECK (
+            tenant_id = current_setting('app.tenant_id', true)
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_runs_delete ON rag_ingestion_runs
+        FOR DELETE
+        USING (
+            tenant_id = current_setting('app.tenant_id', true)
+        )
+    """)
+
+    # -- Row-Level Security: rag_ingestion_items ------------------------------
+
+    op.execute("ALTER TABLE rag_ingestion_items ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE rag_ingestion_items FORCE ROW LEVEL SECURITY")
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_items_select ON rag_ingestion_items
+        FOR SELECT
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_ingestion_runs r
+                WHERE r.id = rag_ingestion_items.run_id
+                  AND r.tenant_id = current_setting('app.tenant_id', true)
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_items_insert ON rag_ingestion_items
+        FOR INSERT
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_ingestion_runs r
+                WHERE r.id = rag_ingestion_items.run_id
+                  AND r.tenant_id = current_setting('app.tenant_id', true)
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_items_update ON rag_ingestion_items
+        FOR UPDATE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_ingestion_runs r
+                WHERE r.id = rag_ingestion_items.run_id
+                  AND r.tenant_id = current_setting('app.tenant_id', true)
+            )
+        )
+        WITH CHECK (
+            EXISTS (
+                SELECT 1
+                FROM rag_ingestion_runs r
+                WHERE r.id = rag_ingestion_items.run_id
+                  AND r.tenant_id = current_setting('app.tenant_id', true)
+            )
+        )
+    """)
+
+    op.execute("""
+        CREATE POLICY rag_ingestion_items_delete ON rag_ingestion_items
+        FOR DELETE
+        USING (
+            EXISTS (
+                SELECT 1
+                FROM rag_ingestion_runs r
+                WHERE r.id = rag_ingestion_items.run_id
+                  AND r.tenant_id = current_setting('app.tenant_id', true)
+            )
+        )
+    """)
+
 
 def downgrade() -> None:
+    # -- Drop RLS policies (reverse order) ------------------------------------
+
+    # rag_ingestion_items
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_delete ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_update ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_insert ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_select ON rag_ingestion_items")
+    op.execute("ALTER TABLE rag_ingestion_items DISABLE ROW LEVEL SECURITY")
+
+    # rag_ingestion_runs
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_runs_delete ON rag_ingestion_runs")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_runs_update ON rag_ingestion_runs")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_runs_insert ON rag_ingestion_runs")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_runs_select ON rag_ingestion_runs")
+    op.execute("ALTER TABLE rag_ingestion_runs DISABLE ROW LEVEL SECURITY")
+
+    # rag_chunk_embeddings
+    op.execute("DROP POLICY IF EXISTS rag_embeddings_delete ON rag_chunk_embeddings")
+    op.execute("DROP POLICY IF EXISTS rag_embeddings_update ON rag_chunk_embeddings")
+    op.execute("DROP POLICY IF EXISTS rag_embeddings_insert ON rag_chunk_embeddings")
+    op.execute("DROP POLICY IF EXISTS rag_embeddings_select ON rag_chunk_embeddings")
+    op.execute("ALTER TABLE rag_chunk_embeddings DISABLE ROW LEVEL SECURITY")
+
+    # rag_document_chunks
+    op.execute("DROP POLICY IF EXISTS rag_chunks_delete ON rag_document_chunks")
+    op.execute("DROP POLICY IF EXISTS rag_chunks_update ON rag_document_chunks")
+    op.execute("DROP POLICY IF EXISTS rag_chunks_insert ON rag_document_chunks")
+    op.execute("DROP POLICY IF EXISTS rag_chunks_select ON rag_document_chunks")
+    op.execute("ALTER TABLE rag_document_chunks DISABLE ROW LEVEL SECURITY")
+
+    # rag_documents
     op.execute("DROP POLICY IF EXISTS rag_documents_delete ON rag_documents")
     op.execute("DROP POLICY IF EXISTS rag_documents_update ON rag_documents")
     op.execute("DROP POLICY IF EXISTS rag_documents_insert ON rag_documents")
     op.execute("DROP POLICY IF EXISTS rag_documents_select ON rag_documents")
     op.execute("ALTER TABLE rag_documents DISABLE ROW LEVEL SECURITY")
 
+    # -- Drop tables (reverse FK order) ---------------------------------------
     op.execute("DROP TABLE IF EXISTS rag_ingestion_items CASCADE")
     op.execute("DROP TABLE IF EXISTS rag_ingestion_runs CASCADE")
     op.execute("DROP TABLE IF EXISTS rag_chunk_embeddings CASCADE")

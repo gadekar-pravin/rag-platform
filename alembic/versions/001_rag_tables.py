@@ -630,18 +630,10 @@ def downgrade() -> None:
     # -- Drop RLS policies (reverse order) ------------------------------------
 
     # rag_ingestion_items
-    op.execute(
-        "DROP POLICY IF EXISTS rag_ingestion_items_delete ON rag_ingestion_items"
-    )
-    op.execute(
-        "DROP POLICY IF EXISTS rag_ingestion_items_update ON rag_ingestion_items"
-    )
-    op.execute(
-        "DROP POLICY IF EXISTS rag_ingestion_items_insert ON rag_ingestion_items"
-    )
-    op.execute(
-        "DROP POLICY IF EXISTS rag_ingestion_items_select ON rag_ingestion_items"
-    )
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_delete ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_update ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_insert ON rag_ingestion_items")
+    op.execute("DROP POLICY IF EXISTS rag_ingestion_items_select ON rag_ingestion_items")
     op.execute("ALTER TABLE rag_ingestion_items DISABLE ROW LEVEL SECURITY")
 
     # rag_ingestion_runs

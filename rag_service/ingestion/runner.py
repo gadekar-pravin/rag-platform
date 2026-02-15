@@ -65,10 +65,7 @@ class IngestionRunner:
             max_files=max_files,
         )
 
-        if (
-            self._cfg.tenants_allowlist is not None
-            and tenant_id not in self._cfg.tenants_allowlist
-        ):
+        if self._cfg.tenants_allowlist is not None and tenant_id not in self._cfg.tenants_allowlist:
             logger.warning("Tenant '%s' not in allowlist; skipping", tenant_id)
             return {"total": 0, "completed": 0, "skipped": 0, "failed": 0}
 
@@ -239,9 +236,7 @@ class IngestionRunner:
         # Incremental skip check
         if self._cfg.incremental and not (force or self._cfg.force_reindex):
             async with rls_connection(tenant_id, user_id) as conn:
-                existing = await self._store.get_team_document_by_source_uri(
-                    conn, source_uri=item.source_uri
-                )
+                existing = await self._store.get_team_document_by_source_uri(conn, source_uri=item.source_uri)
                 if existing and (existing.get("source_hash") == src_hash):
                     await self._mark_item_skipped(
                         tenant_id=tenant_id,
@@ -258,9 +253,7 @@ class IngestionRunner:
                     )
 
         # Download bytes (blocking I/O → run in thread to not block event loop)
-        data = await asyncio.to_thread(
-            download_bytes, self._gcs, item.bucket, item.name
-        )
+        data = await asyncio.to_thread(download_bytes, self._gcs, item.bucket, item.name)
 
         # Build extractors for this run
         if self._cfg.ocr_enabled and self._docai is None:
@@ -274,9 +267,7 @@ class IngestionRunner:
 
         if self._cfg.ocr_enabled:
             # DocAI output prefix per item if batch OCR used
-            docai_out = self._docai_output_prefix(
-                tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri
-            )
+            docai_out = self._docai_output_prefix(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri)
             extractors.append(ImageExtractor(docai=self._docai))
             extractors.append(
                 PdfExtractor(
@@ -308,12 +299,8 @@ class IngestionRunner:
         # Optional: store extracted artifact
         extracted_text_uri = None
         if self._cfg.output_bucket:
-            key = self._extracted_key(
-                tenant_id=tenant_id, run_id=run_id, source_hash=src_hash
-            )
-            await asyncio.to_thread(
-                upload_text, self._gcs, self._cfg.output_bucket, key, text
-            )
+            key = self._extracted_key(tenant_id=tenant_id, run_id=run_id, source_hash=src_hash)
+            await asyncio.to_thread(upload_text, self._gcs, self._cfg.output_bucket, key, text)
             extracted_text_uri = f"gs://{self._cfg.output_bucket}/{key}"
 
         # Truncate doc content if needed
@@ -324,16 +311,12 @@ class IngestionRunner:
             truncated = True
 
         # Chunk + embed (with character offsets for search highlighting)
-        chunks_with_spans = await chunk_document_with_spans(
-            stored_content, method="rule_based"
-        )
+        chunks_with_spans = await chunk_document_with_spans(stored_content, method="rule_based")
         if not chunks_with_spans:
             raise RuntimeError("Chunking produced zero chunks")
 
         chunks = [c[0] for c in chunks_with_spans]
-        chunk_offsets: list[tuple[int | None, int | None]] = [
-            (c[1], c[2]) for c in chunks_with_spans
-        ]
+        chunk_offsets: list[tuple[int | None, int | None]] = [(c[1], c[2]) for c in chunks_with_spans]
 
         embeddings = await embed_chunks(chunks)
 
@@ -389,13 +372,9 @@ class IngestionRunner:
             user_id=user_id,
             document_id=doc_id,
         )
-        return ProcessResult(
-            item=item, status="completed", document_id=doc_id, error_message=None
-        )
+        return ProcessResult(item=item, status="completed", document_id=doc_id, error_message=None)
 
-    def _docai_output_prefix(
-        self, *, tenant_id: str, run_id: str, source_uri: str
-    ) -> str | None:
+    def _docai_output_prefix(self, *, tenant_id: str, run_id: str, source_uri: str) -> str | None:
         if not self._cfg.output_bucket:
             return None
         # Safe-ish: use run id + hashed source uri (no slashes)
@@ -411,9 +390,7 @@ class IngestionRunner:
         h = hashlib.sha256(source_hash.encode()).hexdigest()[:16]
         return f"{self._cfg.output_prefix}{tenant_id}/runs/{run_id}/{h}.txt"
 
-    async def _mark_item_processing(
-        self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str
-    ) -> None:
+    async def _mark_item_processing(self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str) -> None:
         async with rls_connection(tenant_id, user_id) as conn:
             await conn.execute(
                 """

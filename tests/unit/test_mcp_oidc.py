@@ -14,16 +14,8 @@ from rag_mcp.oidc import _decode_jwt_exp, _mint_token, clear_cache, get_service_
 
 def _make_jwt(exp: float, sub: str = "sa@project.iam") -> str:
     """Build a minimal unsigned JWT with the given exp claim."""
-    header = (
-        base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode())
-        .rstrip(b"=")
-        .decode()
-    )
-    payload = (
-        base64.urlsafe_b64encode(json.dumps({"sub": sub, "exp": exp}).encode())
-        .rstrip(b"=")
-        .decode()
-    )
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": sub, "exp": exp}).encode()).rstrip(b"=").decode()
     return f"{header}.{payload}.fakesig"
 
 
@@ -34,16 +26,8 @@ class TestDecodeJwtExp:
         assert _decode_jwt_exp(token) == exp
 
     def test_missing_exp_raises(self):
-        header = (
-            base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode())
-            .rstrip(b"=")
-            .decode()
-        )
-        payload = (
-            base64.urlsafe_b64encode(json.dumps({"sub": "x"}).encode())
-            .rstrip(b"=")
-            .decode()
-        )
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(json.dumps({"sub": "x"}).encode()).rstrip(b"=").decode()
         token = f"{header}.{payload}.sig"
         with pytest.raises(ValueError, match="missing 'exp'"):
             _decode_jwt_exp(token)

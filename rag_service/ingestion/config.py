@@ -58,9 +58,7 @@ class IngestConfig:
             input_prefix += "/"
 
         tenants = os.getenv("RAG_INGEST_TENANTS")
-        allowlist = (
-            {t.strip() for t in tenants.split(",") if t.strip()} if tenants else None
-        )
+        allowlist = {t.strip() for t in tenants.split(",") if t.strip()} if tenants else None
 
         output_bucket = os.getenv("RAG_INGEST_OUTPUT_BUCKET")
         output_prefix = os.getenv("RAG_INGEST_OUTPUT_PREFIX", "rag-extracted/")
@@ -105,9 +103,7 @@ class IngestConfig:
                 if not v
             ]
             if missing:
-                raise ValueError(
-                    f"OCR enabled but missing DocAI config: {', '.join(missing)}"
-                )
+                raise ValueError(f"OCR enabled but missing DocAI config: {', '.join(missing)}")
 
         if self.max_file_workers < 1:
             raise ValueError("RAG_INGEST_MAX_FILE_WORKERS must be >= 1")

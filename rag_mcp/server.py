@@ -42,18 +42,14 @@ async def search(query: str, limit: int = 10, ctx: Context | None = None) -> str
 
 
 @mcp.tool()
-async def list_documents(
-    limit: int = 20, offset: int = 0, ctx: Context | None = None
-) -> str:
+async def list_documents(limit: int = 20, offset: int = 0, ctx: Context | None = None) -> str:
     """List available documents in the knowledge base.
 
     Args:
         limit: Maximum number of documents to return (default 20).
         offset: Number of documents to skip for pagination (default 0).
     """
-    return await rag_list_documents(
-        limit, offset, caller_token=extract_bearer_from_context(ctx)
-    )
+    return await rag_list_documents(limit, offset, caller_token=extract_bearer_from_context(ctx))
 
 
 def main() -> None:

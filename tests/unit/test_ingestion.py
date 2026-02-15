@@ -72,9 +72,7 @@ from rag_service.ingestion.planner import (  # noqa: E402
 from rag_service.ingestion.types import WorkItem  # noqa: E402
 
 # Mark extractor tests to skip if real deps aren't available
-_need_ingestion_deps = pytest.mark.skipif(
-    bool(_MISSING_DEPS), reason=f"Missing: {_MISSING_DEPS}"
-)
+_need_ingestion_deps = pytest.mark.skipif(bool(_MISSING_DEPS), reason=f"Missing: {_MISSING_DEPS}")
 
 
 # ---------------------------------------------------------------------------
@@ -147,12 +145,8 @@ class TestSourceHash:
 
     def test_different_generation_produces_different_hash(self):
         """Changing generation alone should produce a different hash."""
-        h1 = compute_source_hash(
-            generation="1", md5_hash=None, crc32c=None, size=None, updated=None
-        )
-        h2 = compute_source_hash(
-            generation="2", md5_hash=None, crc32c=None, size=None, updated=None
-        )
+        h1 = compute_source_hash(generation="1", md5_hash=None, crc32c=None, size=None, updated=None)
+        h2 = compute_source_hash(generation="2", md5_hash=None, crc32c=None, size=None, updated=None)
         assert h1 != h2
 
 
@@ -231,9 +225,7 @@ class TestDocxExtractor:
         mock_doc = MagicMock()
         mock_doc.paragraphs = [mock_para1, mock_para2, mock_para3]
 
-        with patch(
-            "rag_service.ingestion.extractors.docx.docx.Document", return_value=mock_doc
-        ):
+        with patch("rag_service.ingestion.extractors.docx.docx.Document", return_value=mock_doc):
             result = ext.extract(item=item, data=b"fake-docx-bytes")
 
         assert "First paragraph" in result.text
@@ -272,9 +264,7 @@ class TestPdfExtractor:
         mock_page.extract_text.return_value = "hi"
         mock_reader.pages = [mock_page, mock_page, mock_page]
 
-        with patch(
-            "rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader
-        ):
+        with patch("rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader):
             result = ext.extract(item=item, data=b"fake-pdf")
 
         assert result.used_ocr is True
@@ -298,9 +288,7 @@ class TestPdfExtractor:
         mock_page.extract_text.return_value = "A" * 300
         mock_reader.pages = [mock_page]
 
-        with patch(
-            "rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader
-        ):
+        with patch("rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader):
             result = ext.extract(item=item, data=b"fake-pdf")
 
         assert result.used_ocr is False
@@ -325,9 +313,7 @@ class TestImageExtractor:
 
         assert result.used_ocr is True
         assert "Image text" in result.text
-        mock_docai.ocr_online.assert_called_once_with(
-            content=b"fake-image-bytes", mime_type="image/png"
-        )
+        mock_docai.ocr_online.assert_called_once_with(content=b"fake-image-bytes", mime_type="image/png")
 
     def test_default_mime_type(self):
         from rag_service.ingestion.extractors.image import ImageExtractor
@@ -339,9 +325,7 @@ class TestImageExtractor:
         item = _make_item(doc_type="image", content_type=None)
         ext.extract(item=item, data=b"data")
 
-        mock_docai.ocr_online.assert_called_once_with(
-            content=b"data", mime_type="image/png"
-        )
+        mock_docai.ocr_online.assert_called_once_with(content=b"data", mime_type="image/png")
 
 
 # ===========================================================================
@@ -499,9 +483,7 @@ class TestPdfExtractorOcrGuard:
         from rag_service.ingestion.extractors.pdf import PdfExtractor
 
         mock_docai = MagicMock()
-        ext = PdfExtractor(
-            docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None
-        )
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None)
         assert ext._docai_output_prefix is None
 
     def test_raises_when_ocr_needed_but_prefix_is_none(self):
@@ -509,9 +491,7 @@ class TestPdfExtractorOcrGuard:
         from rag_service.ingestion.extractors.pdf import PdfExtractor
 
         mock_docai = MagicMock()
-        ext = PdfExtractor(
-            docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None
-        )
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None)
         item = _make_item(doc_type="pdf")
 
         # Mock PdfReader with very little text (triggers OCR)
@@ -534,9 +514,7 @@ class TestPdfExtractorOcrGuard:
         from rag_service.ingestion.extractors.pdf import PdfExtractor
 
         mock_docai = MagicMock()
-        ext = PdfExtractor(
-            docai=mock_docai, text_per_page_min=50, output_prefix_for_docai=None
-        )
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=50, output_prefix_for_docai=None)
         item = _make_item(doc_type="pdf")
 
         mock_reader = MagicMock()
@@ -544,9 +522,7 @@ class TestPdfExtractorOcrGuard:
         mock_page.extract_text.return_value = "A" * 300
         mock_reader.pages = [mock_page]
 
-        with patch(
-            "rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader
-        ):
+        with patch("rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader):
             result = ext.extract(item=item, data=b"fake-pdf")
 
         assert result.used_ocr is False
@@ -659,9 +635,7 @@ class TestDocaiOutputPrefixDeferred:
         mock_client = MagicMock()
         runner = IngestionRunner(cfg=cfg, storage_client=mock_client)
 
-        result = runner._docai_output_prefix(
-            tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf"
-        )
+        result = runner._docai_output_prefix(tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf")
         assert result is None
 
     def test_returns_prefix_when_output_bucket_set(self):
@@ -687,9 +661,7 @@ class TestDocaiOutputPrefixDeferred:
         mock_client = MagicMock()
         runner = IngestionRunner(cfg=cfg, storage_client=mock_client)
 
-        result = runner._docai_output_prefix(
-            tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf"
-        )
+        result = runner._docai_output_prefix(tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf")
         assert result is not None
         assert result.startswith("gs://out-bucket/")
 

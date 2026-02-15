@@ -126,9 +126,7 @@ class TestReadiness:
         new_callable=AsyncMock,
         return_value=True,
     )
-    @patch(
-        "rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True
-    )
+    @patch("rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True)
     async def test_readiness_ok(self, mock_db, mock_emb, client: AsyncClient):
         resp = await client.get("/readiness")
         assert resp.status_code == 200
@@ -154,12 +152,8 @@ class TestReadiness:
         new_callable=AsyncMock,
         return_value=False,
     )
-    @patch(
-        "rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True
-    )
-    async def test_readiness_embedding_down(
-        self, mock_db, mock_emb, client: AsyncClient
-    ):
+    @patch("rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True)
+    async def test_readiness_embedding_down(self, mock_db, mock_emb, client: AsyncClient):
         """When DB is OK but embedding is down, status is degraded (not 503)."""
         resp = await client.get("/readiness")
         assert resp.status_code == 200
@@ -355,9 +349,7 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(
-                return_value={"document_id": doc_id, "total_chunks": 1}
-            )
+            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 1})
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},
@@ -544,9 +536,7 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(
-                return_value={"document_id": doc_id, "total_chunks": 3}
-            )
+            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 3})
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},

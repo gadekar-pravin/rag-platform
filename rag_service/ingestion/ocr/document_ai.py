@@ -36,9 +36,7 @@ class DocumentAIClient:
         self._doc_client = documentai.DocumentProcessorServiceClient()
         self._storage = storage_client
 
-    def ocr_online(
-        self, *, content: bytes, mime_type: str
-    ) -> tuple[str, dict[str, Any]]:
+    def ocr_online(self, *, content: bytes, mime_type: str) -> tuple[str, dict[str, Any]]:
         req = documentai.ProcessRequest(
             name=self._cfg.processor_name,
             raw_document=documentai.RawDocument(content=content, mime_type=mime_type),
@@ -65,16 +63,10 @@ class DocumentAIClient:
         if not output_gcs_prefix.endswith("/"):
             output_gcs_prefix += "/"
 
-        gcs_doc = documentai.GcsDocument(
-            gcs_uri=input_gcs_uri, mime_type="application/pdf"
-        )
-        input_docs = documentai.BatchDocumentsInputConfig(
-            gcs_documents=documentai.GcsDocuments(documents=[gcs_doc])
-        )
+        gcs_doc = documentai.GcsDocument(gcs_uri=input_gcs_uri, mime_type="application/pdf")
+        input_docs = documentai.BatchDocumentsInputConfig(gcs_documents=documentai.GcsDocuments(documents=[gcs_doc]))
         output_cfg = documentai.DocumentOutputConfig(
-            gcs_output_config=documentai.DocumentOutputConfig.GcsOutputConfig(
-                gcs_uri=output_gcs_prefix
-            )
+            gcs_output_config=documentai.DocumentOutputConfig.GcsOutputConfig(gcs_uri=output_gcs_prefix)
         )
 
         req = documentai.BatchProcessRequest(
@@ -87,9 +79,7 @@ class DocumentAIClient:
         start = time.time()
         while not op.done():
             if time.time() - start > timeout_s:
-                raise TimeoutError(
-                    f"Document AI batch OCR timed out after {timeout_s}s"
-                )
+                raise TimeoutError(f"Document AI batch OCR timed out after {timeout_s}s")
             time.sleep(poll_s)
 
         # Parse output JSON written by DocAI
@@ -113,9 +103,7 @@ class DocumentAIClient:
 
         blobs = list(self._storage.list_blobs(bucket, prefix=prefix))
         # DocAI writes multiple json shards; keep stable order by name
-        json_blobs = sorted(
-            [b for b in blobs if b.name.lower().endswith(".json")], key=lambda b: b.name
-        )
+        json_blobs = sorted([b for b in blobs if b.name.lower().endswith(".json")], key=lambda b: b.name)
 
         parts: list[str] = []
         for b in json_blobs:

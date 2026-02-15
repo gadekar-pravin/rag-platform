@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 # Cloud Run sets K_SERVICE automatically.
 _ON_CLOUD_RUN = bool(os.getenv("K_SERVICE"))
 
-_METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={audience}"
+_METADATA_URL = (
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={audience}"
+)
 _METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 
 

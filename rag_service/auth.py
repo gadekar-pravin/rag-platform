@@ -79,9 +79,7 @@ async def get_identity(request: Request) -> Identity:
         sub = claims.get("sub", "")
         principal = email or sub
         if not principal:
-            raise HTTPException(
-                status_code=401, detail="Token missing email and sub claims"
-            )
+            raise HTTPException(status_code=401, detail="Token missing email and sub claims")
 
         return Identity(
             tenant_id=_resolve_tenant_id(claims),
@@ -134,8 +132,6 @@ def _resolve_tenant_id(claims: Mapping[str, Any]) -> str:
         return tenant_id
 
     if RAG_REQUIRE_TENANT_CLAIM:
-        raise HTTPException(
-            status_code=401, detail=f"Token missing required tenant claim: {claim_key}"
-        )
+        raise HTTPException(status_code=401, detail=f"Token missing required tenant claim: {claim_key}")
 
     return TENANT_ID

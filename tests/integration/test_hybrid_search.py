@@ -34,9 +34,7 @@ def _make_embedding(seed: int, dim: int = 768) -> list[float]:
 
 
 class TestHybridSearch:
-    async def test_vector_search_returns_closest(
-        self, db_pool, doc_store, search_store
-    ):
+    async def test_vector_search_returns_closest(self, db_pool, doc_store, search_store):
         """Vector search ranks documents by embedding similarity."""
         query_vec = _make_embedding(42)
         close_vec = _make_embedding(42)  # same seed = identical = closest
@@ -67,9 +65,7 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "database query", query_vec, doc_limit=10
-            )
+            result = await search_store.search_hybrid(conn, "database query", query_vec, doc_limit=10)
 
             assert len(result["results"]) == 2
             # Close doc should rank higher
@@ -104,15 +100,11 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "Python programming", vec, doc_limit=10
-            )
+            result = await search_store.search_hybrid(conn, "Python programming", vec, doc_limit=10)
 
             assert len(result["results"]) >= 1
             # Python doc should have text_score > 0
-            python_result = next(
-                r for r in result["results"] if r["title"] == "Python Guide"
-            )
+            python_result = next(r for r in result["results"] if r["title"] == "Python Guide")
             assert python_result["text_score"] > 0
 
     async def test_rrf_fusion_ranks_combined(self, db_pool, doc_store, search_store):
@@ -146,9 +138,7 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "machine learning", query_vec, doc_limit=10
-            )
+            result = await search_store.search_hybrid(conn, "machine learning", query_vec, doc_limit=10)
 
             assert len(result["results"]) >= 1
             # Best Match should rank highest (matches both signals)
@@ -176,9 +166,7 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "debug test", vec, doc_limit=5, include_debug=True
-            )
+            result = await search_store.search_hybrid(conn, "debug test", vec, doc_limit=5, include_debug=True)
 
             assert result["debug"] is not None
             assert "vector_pool_size" in result["debug"]
@@ -210,9 +198,7 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "databases APIs", vec, doc_limit=5
-            )
+            result = await search_store.search_hybrid(conn, "databases APIs", vec, doc_limit=5)
 
             assert len(result["results"]) == 1
             chunks = result["results"][0]["chunks"]
@@ -244,8 +230,6 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "tenant-b")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@b.com")
 
-            result = await search_store.search_hybrid(
-                conn, "tenant A", vec, doc_limit=5
-            )
+            result = await search_store.search_hybrid(conn, "tenant A", vec, doc_limit=5)
 
             assert len(result["results"]) == 0

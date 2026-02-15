@@ -24,8 +24,8 @@ class TestRLSEnforcement:
 
         # Insert directly bypassing RLS (use a connection that sets vars)
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -45,8 +45,8 @@ class TestRLSEnforcement:
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -57,8 +57,8 @@ class TestRLSEnforcement:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 1
             assert rows[0]["title"] == "Team Doc"
@@ -68,8 +68,8 @@ class TestRLSEnforcement:
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -80,8 +80,8 @@ class TestRLSEnforcement:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t2")
-            await conn.execute("SET LOCAL app.user_id = $1", "u2@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t2")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u2@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 0
 
@@ -90,8 +90,8 @@ class TestRLSEnforcement:
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "owner@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "owner@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility,
@@ -105,15 +105,15 @@ class TestRLSEnforcement:
 
         # Owner can see it
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "owner@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "owner@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 1
 
         # Other user in same tenant cannot see it
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "other@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "other@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 0
 
@@ -122,8 +122,8 @@ class TestRLSEnforcement:
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -135,8 +135,8 @@ class TestRLSEnforcement:
 
         # Different user, same tenant
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u2@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u2@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 1
 
@@ -145,8 +145,8 @@ class TestRLSEnforcement:
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -159,8 +159,8 @@ class TestRLSEnforcement:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             rows = await conn.fetch("SELECT * FROM rag_documents")
             assert len(rows) == 0
 
@@ -171,8 +171,8 @@ class TestRLSEnforcement:
         emb_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -212,8 +212,8 @@ class TestRLSEnforcement:
         emb_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "tenant-a")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@a.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "tenant-a")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@a.com")
             await conn.execute(
                 """
                     INSERT INTO rag_documents (id, tenant_id, visibility, title,
@@ -241,8 +241,8 @@ class TestRLSEnforcement:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "tenant-b")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@b.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "tenant-b")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@b.com")
             chunk_rows = await conn.fetch("SELECT * FROM rag_document_chunks")
             emb_rows = await conn.fetch("SELECT * FROM rag_chunk_embeddings")
             assert len(chunk_rows) == 0
@@ -251,8 +251,8 @@ class TestRLSEnforcement:
     async def test_insert_policy_enforces_tenant_match(self, db_pool):
         """INSERT policy rejects rows where tenant_id doesn't match session."""
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             with pytest.raises(asyncpg.PostgresError):
                 await conn.execute(
                     """
@@ -265,8 +265,8 @@ class TestRLSEnforcement:
     async def test_check_constraint_private_requires_owner(self, db_pool):
         """CHECK constraint: PRIVATE visibility requires owner_user_id."""
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             with pytest.raises(asyncpg.PostgresError):
                 await conn.execute(
                     """

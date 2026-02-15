@@ -24,8 +24,8 @@ class TestContentHashDedup:
         embeddings = [[0.1] * 768]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r1 = await store.upsert_document(
                 conn,
@@ -38,8 +38,8 @@ class TestContentHashDedup:
             assert r1["status"] == "indexed"
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r2 = await store.upsert_document(
                 conn,
@@ -58,8 +58,8 @@ class TestContentHashDedup:
         embeddings = [[0.1] * 768]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r1 = await store.upsert_document(
                 conn,
@@ -71,8 +71,8 @@ class TestContentHashDedup:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r2 = await store.upsert_document(
                 conn,
@@ -92,8 +92,8 @@ class TestContentHashDedup:
         embeddings = [[0.1] * 768]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r1 = await store.upsert_document(
                 conn,
@@ -107,8 +107,8 @@ class TestContentHashDedup:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u2@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u2@test.com")
 
             r2 = await store.upsert_document(
                 conn,
@@ -134,8 +134,8 @@ class TestContentHashDedup:
         embeddings = [[0.1] * 768]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             r1 = await store.upsert_document(
                 conn,
@@ -149,8 +149,8 @@ class TestContentHashDedup:
             assert r1["status"] == "indexed"
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u2@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u2@test.com")
 
             r2 = await store.upsert_document(
                 conn,
@@ -170,8 +170,8 @@ class TestContentHashDedup:
         embeddings = [[0.1] * 768, [0.2] * 768]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await store.upsert_document(
                 conn,

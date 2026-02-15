@@ -277,15 +277,22 @@ class IngestionRunner:
             docai_out = self._docai_output_prefix(
                 tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri
             )
-            extractors.extend(
-                [
-                    ImageExtractor(docai=self._docai),
-                    PdfExtractor(
-                        docai=self._docai,
-                        text_per_page_min=self._cfg.pdf_text_per_page_min,
-                        output_prefix_for_docai=docai_out,
-                    ),
-                ]
+            extractors.append(ImageExtractor(docai=self._docai))
+            extractors.append(
+                PdfExtractor(
+                    docai=self._docai,
+                    text_per_page_min=self._cfg.pdf_text_per_page_min,
+                    output_prefix_for_docai=docai_out,
+                )
+            )
+        else:
+            # PDF text extraction without OCR fallback
+            extractors.append(
+                PdfExtractor(
+                    docai=None,
+                    text_per_page_min=self._cfg.pdf_text_per_page_min,
+                    output_prefix_for_docai=None,
+                )
             )
 
         # Choose extractor

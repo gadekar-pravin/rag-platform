@@ -34,8 +34,8 @@ class TestTeamGCSIngest:
         embeddings = [_fake_embedding()]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r1 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -48,8 +48,8 @@ class TestTeamGCSIngest:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r2 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -73,8 +73,8 @@ class TestTeamGCSIngest:
         embeddings_v2 = [_fake_embedding(), _fake_embedding()]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r1 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -89,8 +89,8 @@ class TestTeamGCSIngest:
         doc_id = r1["document_id"]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r2 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -108,8 +108,8 @@ class TestTeamGCSIngest:
 
         # Verify chunks were replaced
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             chunk_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM rag_document_chunks WHERE document_id = $1",
                 uuid.UUID(doc_id),
@@ -123,8 +123,8 @@ class TestTeamGCSIngest:
         embeddings = [_fake_embedding()]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r1 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -137,8 +137,8 @@ class TestTeamGCSIngest:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r2 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -165,8 +165,8 @@ class TestTeamAdHocDedup:
         embeddings = [_fake_embedding()]
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r1 = await store.upsert_document(
                 conn,
                 tenant_id="t1",
@@ -178,8 +178,8 @@ class TestTeamAdHocDedup:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r2 = await store.upsert_document(
                 conn,
                 tenant_id="t1",
@@ -201,8 +201,8 @@ class TestAtomicity:
     async def test_old_chunks_deleted_new_present(self, db_pool, store):
         """After upsert_document_by_source_uri, old chunks should be gone, new chunks present."""
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             r1 = await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -217,8 +217,8 @@ class TestAtomicity:
         doc_id = uuid.UUID(r1["document_id"])
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             await store.upsert_document_by_source_uri(
                 conn,
                 tenant_id="t1",
@@ -232,8 +232,8 @@ class TestAtomicity:
 
         # Verify: exactly 1 chunk, and it's the new one
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "bot@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "bot@test.com")
             rows = await conn.fetch(
                 "SELECT chunk_text FROM rag_document_chunks WHERE document_id = $1 ORDER BY chunk_index",
                 doc_id,

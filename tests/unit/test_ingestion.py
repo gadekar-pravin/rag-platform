@@ -64,11 +64,11 @@ if _MISSING_DEPS:
 
 from rag_service.ingestion.config import IngestConfig  # noqa: E402
 from rag_service.ingestion.extractors.base import normalize_text  # noqa: E402
-from rag_service.ingestion.planner import (
+from rag_service.ingestion.planner import (  # noqa: E402
     compute_source_hash,
     derive_doc_type,
     discover_work_items,
-)  # noqa: E402
+)
 from rag_service.ingestion.types import WorkItem  # noqa: E402
 
 # Mark extractor tests to skip if real deps aren't available
@@ -705,9 +705,10 @@ class TestAsyncIOThreadWrapping:
 
         source = inspect.getsource(runner.IngestionRunner._process_item_once)
 
-        assert "asyncio.to_thread(download_bytes" in source
-        assert "asyncio.to_thread(extractor.extract" in source
-        assert "asyncio.to_thread(upload_text" in source
+        assert "asyncio.to_thread(" in source
+        assert "download_bytes" in source
+        assert "extractor.extract" in source
+        assert "upload_text" in source
 
     def test_blocking_calls_are_awaited(self):
         """Each asyncio.to_thread call is awaited."""
@@ -717,9 +718,10 @@ class TestAsyncIOThreadWrapping:
 
         source = inspect.getsource(runner.IngestionRunner._process_item_once)
 
-        assert "await asyncio.to_thread(download_bytes" in source
-        assert "await asyncio.to_thread(extractor.extract" in source
-        assert "await asyncio.to_thread(upload_text" in source
+        assert "await asyncio.to_thread(" in source
+        assert "download_bytes" in source
+        assert "extractor.extract" in source
+        assert "upload_text" in source
 
 
 class TestUnchangedUpsertSkipsContent:

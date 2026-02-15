@@ -78,9 +78,11 @@ def get_embedding(text: str, task_type: str = RAG_EMBEDDING_TASK_DOC) -> list[fl
         config={"task_type": task_type, "output_dimensionality": RAG_EMBEDDING_DIM},
     )
 
-    assert response.embeddings is not None, "Embedding response was empty"
+    if response.embeddings is None:
+        raise RuntimeError("Embedding response was empty")
     embedding = response.embeddings[0].values
-    assert embedding is not None, "Embedding values were None"
+    if embedding is None:
+        raise RuntimeError("Embedding values were None")
 
     if len(embedding) != RAG_EMBEDDING_DIM:
         raise ValueError(
@@ -118,7 +120,8 @@ def get_embeddings_batch(
         config={"task_type": task_type, "output_dimensionality": RAG_EMBEDDING_DIM},
     )
 
-    assert response.embeddings is not None, "Batch embedding response was empty"
+    if response.embeddings is None:
+        raise RuntimeError("Batch embedding response was empty")
     if len(response.embeddings) != len(texts):
         raise ValueError(
             f"Batch embedding count mismatch: got {len(response.embeddings)}, expected {len(texts)}"
@@ -127,7 +130,8 @@ def get_embeddings_batch(
     results: list[list[float]] = []
     for i, emb_obj in enumerate(response.embeddings):
         embedding = emb_obj.values
-        assert embedding is not None, f"Embedding values were None for item {i}"
+        if embedding is None:
+            raise RuntimeError(f"Embedding values were None for item {i}")
 
         if len(embedding) != RAG_EMBEDDING_DIM:
             raise ValueError(

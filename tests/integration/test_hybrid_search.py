@@ -43,8 +43,8 @@ class TestHybridSearch:
         far_vec = _make_embedding(99)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             await doc_store.upsert_document(
                 conn,
@@ -64,8 +64,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await search_store.search_hybrid(
                 conn, "database query", query_vec, doc_limit=10
@@ -80,8 +80,8 @@ class TestHybridSearch:
         vec = _make_embedding(1)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             await doc_store.upsert_document(
                 conn,
@@ -101,8 +101,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await search_store.search_hybrid(
                 conn, "Python programming", vec, doc_limit=10
@@ -120,8 +120,8 @@ class TestHybridSearch:
         query_vec = _make_embedding(10)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             # Doc that matches both vector AND text
             await doc_store.upsert_document(
@@ -143,8 +143,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await search_store.search_hybrid(
                 conn, "machine learning", query_vec, doc_limit=10
@@ -160,8 +160,8 @@ class TestHybridSearch:
         vec = _make_embedding(1)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             await doc_store.upsert_document(
                 conn,
@@ -173,8 +173,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await search_store.search_hybrid(
                 conn, "debug test", vec, doc_limit=5, include_debug=True
@@ -190,8 +190,8 @@ class TestHybridSearch:
         vec = _make_embedding(1)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             await doc_store.upsert_document(
                 conn,
@@ -207,8 +207,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "t1")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@test.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
             result = await search_store.search_hybrid(
                 conn, "databases APIs", vec, doc_limit=5
@@ -228,8 +228,8 @@ class TestHybridSearch:
         vec = _make_embedding(1)
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "tenant-a")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@a.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "tenant-a")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@a.com")
 
             await doc_store.upsert_document(
                 conn,
@@ -241,8 +241,8 @@ class TestHybridSearch:
             )
 
         async with db_pool.acquire() as conn, conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", "tenant-b")
-            await conn.execute("SET LOCAL app.user_id = $1", "u1@b.com")
+            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "tenant-b")
+            await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@b.com")
 
             result = await search_store.search_hybrid(
                 conn, "tenant A", vec, doc_limit=5

@@ -68,7 +68,7 @@ class TestGetEmbedding:
         mock_client.models.embed_content.return_value = mock_response
         mock_client_fn.return_value = mock_client
 
-        with pytest.raises(AssertionError, match="empty"):
+        with pytest.raises(RuntimeError, match="empty"):
             get_embedding("test text")
 
     @patch("rag_service.embedding._get_gemini_client")

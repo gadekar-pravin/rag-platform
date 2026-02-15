@@ -168,9 +168,7 @@ class TestRLSEnforcement:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
             # Application-layer filter excludes soft-deleted rows
-            rows = await conn.fetch(
-                "SELECT * FROM rag_documents WHERE deleted_at IS NULL"
-            )
+            rows = await conn.fetch("SELECT * FROM rag_documents WHERE deleted_at IS NULL")
             assert len(rows) == 0
 
     async def test_chunks_hidden_without_session_vars(self, db_pool):

@@ -138,9 +138,7 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(
-                conn, "machine learning algorithms", query_vec, doc_limit=10
-            )
+            result = await search_store.search_hybrid(conn, "machine learning algorithms", query_vec, doc_limit=10)
 
             assert len(result["results"]) >= 1
             # Best Match should rank highest (matches both vector and text signals)

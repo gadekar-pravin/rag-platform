@@ -473,9 +473,7 @@ class RagDocumentStore:
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         """List visible documents (TEAM + owned PRIVATE, enforced by RLS)."""
-        total = await conn.fetchval(
-            "SELECT COUNT(*) FROM rag_documents WHERE deleted_at IS NULL"
-        )
+        total = await conn.fetchval("SELECT COUNT(*) FROM rag_documents WHERE deleted_at IS NULL")
 
         rows = await conn.fetch(
             """

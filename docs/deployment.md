@@ -27,7 +27,7 @@ Deploy the RAG platform to GCP Cloud Run with AlloyDB Omni. This guide covers al
 **Tools required:**
 
 - `gcloud` CLI (authenticated with `gcloud auth login`)
-- Docker
+- Docker **or** Cloud Build (see [Section 5.3](#53-build-and-push-images) for the Cloud Build alternative)
 - Python 3.12+
 - `uv` (recommended) or `pip`
 
@@ -186,7 +186,11 @@ Use Git SHA tags for traceability:
 ```bash
 export IMAGE_TAG=$(git rev-parse --short HEAD)
 export REGISTRY=${REGION}-docker.pkg.dev/${PROJECT_ID}/rag
+```
 
+**Option A — Local Docker build:**
+
+```bash
 # RAG Service
 docker build -f rag_service/Dockerfile -t ${REGISTRY}/rag-service:${IMAGE_TAG} .
 docker push ${REGISTRY}/rag-service:${IMAGE_TAG}
@@ -199,6 +203,33 @@ docker push ${REGISTRY}/rag-mcp:${IMAGE_TAG}
 docker build -f rag_service/Dockerfile.ingestor -t ${REGISTRY}/rag-ingestor:${IMAGE_TAG} .
 docker push ${REGISTRY}/rag-ingestor:${IMAGE_TAG}
 ```
+
+**Option B — Cloud Build** (no local Docker required):
+
+```bash
+gcloud services enable cloudbuild.googleapis.com
+
+# Build and push each image via Cloud Build
+for DOCKERFILE IMAGE_NAME in \
+  "rag_service/Dockerfile rag-service" \
+  "rag_mcp/Dockerfile rag-mcp" \
+  "rag_service/Dockerfile.ingestor rag-ingestor"; do
+  gcloud builds submit \
+    --config=/dev/stdin \
+    --project=${PROJECT_ID} \
+    --timeout=600s \
+    --substitutions="_IMAGE=${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
+    . <<EOF
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', '${DOCKERFILE}', '-t', '\${_IMAGE}', '.']
+images:
+  - '\${_IMAGE}'
+EOF
+done
+```
+
+> Cloud Build uploads the source, builds remotely, and pushes to Artifact Registry in one step. Each build takes ~35-50 seconds.
 
 ---
 
@@ -221,6 +252,8 @@ ALTER ROLE apexflow NOSUPERUSER NOBYPASSRLS;
 ```
 
 ### 6.2 Run migrations
+
+> **Shared database note:** This platform shares the AlloyDB instance with ApexFlow. Alembic is configured to use a separate version table (`rag_alembic_version` in `alembic.ini`) to avoid collisions with ApexFlow's `alembic_version` table. If you see `Can't locate revision identified by '005'` or similar, verify that `version_table = rag_alembic_version` is set in `alembic.ini` and that `alembic/env.py` passes `version_table=VERSION_TABLE` to `context.configure()`.
 
 Alembic uses psycopg2 (sync) and the same 3-priority connection logic as `db.py` (`alembic/env.py:19-34`).
 
@@ -314,9 +347,9 @@ ALLOYDB_USER=apexflow,\
 RAG_CORS_ALLOW_ORIGINS=https://your-frontend.example.com" \
   --set-secrets="ALLOYDB_PASSWORD=rag-alloydb-password:latest,RAG_OIDC_AUDIENCE=rag-oidc-audience:latest" \
   --no-allow-unauthenticated \
-  --vpc-connector=rag-connector
-  # OR, if using Direct VPC egress (see Section 6.4):
-  # --network=default --subnet=default --vpc-egress=private-ranges-only
+  --network=default --subnet=default --vpc-egress=private-ranges-only
+  # OR, if using a VPC connector (legacy, see Section 6.4):
+  # --vpc-connector=rag-connector
 ```
 
 **Important notes:**
@@ -412,7 +445,7 @@ RAG_INGEST_INPUT_BUCKET=${INGEST_BUCKET},\
 RAG_INGEST_INCREMENTAL=true,\
 RAG_INGEST_MAX_FILE_WORKERS=3" \
   --set-secrets="ALLOYDB_PASSWORD=rag-alloydb-password:latest" \
-  --vpc-connector=rag-connector \
+  --network=default --subnet=default --vpc-egress=private-ranges-only \
   --args="--tenant,your-tenant-id"
 ```
 
@@ -511,47 +544,74 @@ CREATE INDEX ix_rag_emb_vector ON rag_chunk_embeddings
 
 ## 11. Health Check Verification
 
-### 11.1 Liveness
+### 11.1 Testing with Cloud Run proxy (recommended)
 
-Since the service is deployed with `--no-allow-unauthenticated`, Cloud Run's IAM layer rejects unauthenticated requests before they reach the app. Include an auth token even for health endpoints:
+The simplest way to test is with `gcloud run services proxy`, which handles Cloud Run IAM automatically. For app-level auth on protected endpoints (`/v1/*`), generate an OIDC token by impersonating the rag-service SA:
 
 ```bash
 RAG_URL=$(gcloud run services describe rag-service --format='value(status.url)')
-TOKEN=$(gcloud auth print-identity-token --audiences="$RAG_URL")
 
-curl -s -H "Authorization: Bearer $TOKEN" "$RAG_URL/liveness"
-# Expected: {"status":"ok"}
-```
+# Start proxy (handles Cloud Run IAM)
+gcloud run services proxy rag-service --port=9090 &
 
-### 11.2 Readiness
+# Generate OIDC token with proper audience (requires iam.serviceAccountTokenCreator on the SA)
+TOKEN=$(gcloud auth print-identity-token \
+  --impersonate-service-account=rag-service@${PROJECT_ID}.iam.gserviceaccount.com \
+  --audiences="$RAG_URL")
 
-The readiness endpoint checks both DB connectivity and the embedding service (`app.py:166-174`):
+# Public endpoints (no app-level auth needed)
+curl -s http://localhost:9090/liveness   # → {"status":"ok"}
+curl -s http://localhost:9090/readiness  # → {"status":"ok"}
 
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$RAG_URL/readiness"
-# Expected: {"status":"ok"}
-# If DB down: 503 {"detail":"Database unavailable"}
-# If embedding down: 200 {"status":"degraded","error":"Embedding service unavailable"}
-```
+# Protected endpoints (require OIDC token)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:9090/v1/documents
+# → {"documents":[],"total":0}
 
-### 11.3 Authenticated endpoint test
-
-```bash
-TOKEN=$(gcloud auth print-identity-token --audiences="$RAG_URL")
-
-curl -s -H "Authorization: Bearer $TOKEN" "$RAG_URL/v1/documents"
-# Expected: {"documents":[],"total":0}
-```
-
-### 11.4 End-to-end search test
-
-```bash
-curl -s -X POST "$RAG_URL/v1/search" \
+curl -s -X POST http://localhost:9090/v1/search \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "test search", "limit": 5}'
-# Expected: {"results":[],"debug":null}
+# → {"results":[],"debug":null}
+
+# Stop proxy
+kill %1
 ```
+
+> **Note:** `gcloud auth print-identity-token --audiences=` requires a service account credential. It does not work with regular user accounts — you must use `--impersonate-service-account`. Grant yourself `roles/iam.serviceAccountTokenCreator` on the SA first:
+> ```bash
+> gcloud iam service-accounts add-iam-policy-binding \
+>   rag-service@${PROJECT_ID}.iam.gserviceaccount.com \
+>   --member="user:YOUR_EMAIL" \
+>   --role="roles/iam.serviceAccountTokenCreator"
+> ```
+
+### 11.2 Testing without proxy (direct HTTPS)
+
+You need both Cloud Run IAM access (`roles/run.invoker` on the service) and a valid OIDC token:
+
+```bash
+# Grant yourself run.invoker
+gcloud run services add-iam-policy-binding rag-service \
+  --member="user:YOUR_EMAIL" --role="roles/run.invoker"
+
+# Generate token (note: IAM propagation may take 1-2 minutes)
+TOKEN=$(gcloud auth print-identity-token \
+  --impersonate-service-account=rag-service@${PROJECT_ID}.iam.gserviceaccount.com \
+  --audiences="$RAG_URL")
+
+curl -s -H "Authorization: Bearer $TOKEN" "$RAG_URL/liveness"
+curl -s -H "Authorization: Bearer $TOKEN" "$RAG_URL/v1/documents"
+```
+
+### 11.3 Readiness details
+
+The readiness endpoint checks both DB connectivity and the embedding service (`app.py:166-174`):
+
+| Response | Meaning |
+|---|---|
+| `{"status":"ok"}` | DB and embedding service healthy |
+| 503 `{"detail":"Database unavailable"}` | Cannot reach AlloyDB — check VPC/host/credentials |
+| `{"status":"degraded","error":"Embedding service unavailable"}` | Vertex AI unreachable — check SA roles |
 
 ---
 
@@ -742,8 +802,41 @@ Rate limits are per-IP. Adjust Cloud Run `--max-instances` and `DB_POOL_MAX` tog
 **Fix:** Ensure `TENANT_ID` env var is set and the auth middleware is correctly extracting identity from OIDC tokens.
 **Ref:** `db.py:113-114`
 
+### Alembic `Can't locate revision identified by '005'`
+
+**Cause:** The shared AlloyDB instance has ApexFlow's `alembic_version` table with its own migration history. If the RAG platform's Alembic reads that table, it finds a revision ID it doesn't recognize.
+**Fix:** Ensure `alembic.ini` contains `version_table = rag_alembic_version` and `alembic/env.py` passes `version_table=VERSION_TABLE` to both `context.configure()` calls. This was fixed in commit `2b513ab`.
+**Ref:** `alembic.ini:3`, `alembic/env.py:37`
+
 ### Alembic connection errors
 
 **Cause:** Alembic cannot reach the database. It uses psycopg2 (sync) with the same 3-priority connection logic.
 **Fix:** Set `DATABASE_URL` explicitly, or set `DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_PORT`/`DB_NAME`. If connecting through an IAP tunnel, ensure the tunnel is active and pointing to the correct local port.
 **Ref:** `alembic/env.py:19-34`
+
+### MCP server crash: `FastMCP.run() got an unexpected keyword argument 'port'`
+
+**Cause:** MCP SDK v1.26.0 moved the `port` and `host` parameters from `FastMCP.run()` to the `FastMCP()` constructor.
+**Fix:** Pass `host` and `port` to the `FastMCP()` constructor, not to `run()`. This was fixed in commit `2b513ab`.
+**Ref:** `rag_mcp/server.py:21-29`
+
+### `asyncpg.exceptions.PostgresSyntaxError: syntax error at or near "$1"` on `SET LOCAL`
+
+**Cause:** PostgreSQL's `SET` command does not support parameterized queries (`$1`). The original `db.py` used `SET LOCAL app.tenant_id = $1`, which works in some PostgreSQL versions but fails in AlloyDB Omni.
+**Fix:** Use `SELECT set_config('app.tenant_id', $1, true)` instead, which is the parameterized equivalent of `SET LOCAL` and is safe from SQL injection. This was fixed in commit `2b513ab`.
+**Ref:** `db.py:118-123`
+
+### `gcloud auth print-identity-token --audiences=` fails with `Invalid account type`
+
+**Cause:** The `--audiences` flag requires a service account credential, not a regular user account.
+**Fix:** Use `--impersonate-service-account` to generate a token with the correct audience. See [Section 11](#11-health-check-verification) for the full command. You need `roles/iam.serviceAccountTokenCreator` on the target SA.
+
+### 403 Forbidden when calling Cloud Run with impersonated SA token
+
+**Cause:** The service account used for impersonation does not have `roles/run.invoker` on the Cloud Run service. Cloud Run IAM rejects the request before it reaches the app.
+**Fix:** Grant `run.invoker` to the SA on the specific service:
+```bash
+gcloud run services add-iam-policy-binding rag-service \
+  --member="serviceAccount:SA_EMAIL" --role="roles/run.invoker"
+```
+IAM propagation can take 1-2 minutes.

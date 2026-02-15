@@ -25,6 +25,8 @@ mcp = FastMCP(
         "Use rag_search to find relevant documents by natural language query. "
         "Use rag_list_documents to browse available documents."
     ),
+    host="0.0.0.0",
+    port=MCP_PORT,
 )
 
 
@@ -52,7 +54,7 @@ async def list_documents(limit: int = 20, offset: int = 0, ctx: Context | None =
 
 def main() -> None:
     """Run the MCP server."""
-    mcp.run(transport="streamable-http", port=MCP_PORT)
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":

@@ -34,7 +34,11 @@ def _get_headers(caller_token: str | None = None) -> dict[str, str]:
         return headers
 
     # 2. Caller-forwarded token or 3. Static token
-    token = caller_token if (RAG_MCP_FORWARD_CALLER_TOKEN and caller_token) else RAG_MCP_TOKEN
+    token = (
+        caller_token
+        if (RAG_MCP_FORWARD_CALLER_TOKEN and caller_token)
+        else RAG_MCP_TOKEN
+    )
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -84,13 +88,20 @@ async def _request_with_retry(
     for attempt in range(_MAX_RETRIES + 1):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.request(method, url, headers=headers, json=json, params=params)
+                resp = await client.request(
+                    method, url, headers=headers, json=json, params=params
+                )
             if resp.status_code not in _RETRYABLE_STATUS or attempt >= _MAX_RETRIES:
                 return resp
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt >= _MAX_RETRIES:
                 raise
-            logger.warning("HTTP request failed (attempt %d/%d): %s", attempt + 1, _MAX_RETRIES + 1, e)
+            logger.warning(
+                "HTTP request failed (attempt %d/%d): %s",
+                attempt + 1,
+                _MAX_RETRIES + 1,
+                e,
+            )
         await asyncio.sleep(_RETRY_BACKOFF_BASE * (2**attempt))
     raise RuntimeError("Unreachable retry path")
 
@@ -108,7 +119,9 @@ def _sanitize_error(status_code: int) -> str:
     return f"Request failed with status {status_code}."
 
 
-async def rag_search(query: str, limit: int = 10, caller_token: str | None = None) -> str:
+async def rag_search(
+    query: str, limit: int = 10, caller_token: str | None = None
+) -> str:
     """Search the team's document knowledge base.
 
     Args:

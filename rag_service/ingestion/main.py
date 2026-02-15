@@ -23,7 +23,11 @@ async def _amain() -> int:
     cfg.validate()
 
     # CLI overrides
-    concurrency = args.concurrency if args.concurrency and args.concurrency > 0 else cfg.max_file_workers
+    concurrency = (
+        args.concurrency
+        if args.concurrency and args.concurrency > 0
+        else cfg.max_file_workers
+    )
     force = bool(args.force) or cfg.force_reindex
 
     client = Client()
@@ -31,7 +35,11 @@ async def _amain() -> int:
 
     # Determine tenants
     tenants: list[str]
-    tenants = list_tenant_prefixes(client, cfg.input_bucket) if args.all_tenants else list(args.tenant or [])
+    tenants = (
+        list_tenant_prefixes(client, cfg.input_bucket)
+        if args.all_tenants
+        else list(args.tenant or [])
+    )
 
     if cfg.tenants_allowlist is not None:
         tenants = [t for t in tenants if t in cfg.tenants_allowlist]

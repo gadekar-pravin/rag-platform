@@ -164,7 +164,10 @@ class RagDocumentStore:
                 if (
                     settings_match
                     and existing["content_hash"] == content_hash
-                    and ((source_hash is None) or (existing["source_hash"] == source_hash))
+                    and (
+                        (source_hash is None)
+                        or (existing["source_hash"] == source_hash)
+                    )
                 ):
                     # Still refresh metadata/title/source_hash cheaply
                     # Skip content write — content_hash confirms it's identical
@@ -246,9 +249,15 @@ class RagDocumentStore:
             doc_id = row["id"]
 
             # Replace chunks + embeddings atomically
-            await conn.execute("DELETE FROM rag_document_chunks WHERE document_id = $1", doc_id)
+            await conn.execute(
+                "DELETE FROM rag_document_chunks WHERE document_id = $1", doc_id
+            )
             await self._store_chunks_and_embeddings(
-                conn, uuid.UUID(str(doc_id)), chunks, embeddings, chunk_offsets=chunk_offsets
+                conn,
+                uuid.UUID(str(doc_id)),
+                chunks,
+                embeddings,
+                chunk_offsets=chunk_offsets,
             )
 
             await conn.execute(
@@ -262,7 +271,11 @@ class RagDocumentStore:
                 len(chunks),
             )
 
-        return {"document_id": str(doc_id), "status": "indexed", "total_chunks": len(chunks)}
+        return {
+            "document_id": str(doc_id),
+            "status": "indexed",
+            "total_chunks": len(chunks),
+        }
 
     async def upsert_document(
         self,
@@ -399,7 +412,9 @@ class RagDocumentStore:
                 source_hash,  # $16
             )
             if row is None:
-                raise RuntimeError("Failed to insert or resolve deduplicated document row")
+                raise RuntimeError(
+                    "Failed to insert or resolve deduplicated document row"
+                )
 
             actual_id: str = str(row["id"])
             is_new: bool = bool(row["is_new"])

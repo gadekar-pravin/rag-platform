@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 
 class SearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=10_000, description="Search query text")
+    query: str = Field(
+        ..., min_length=1, max_length=10_000, description="Search query text"
+    )
     limit: int = Field(10, ge=1, le=50, description="Max documents to return")
     include_debug: bool = Field(False, description="Include debug metrics in response")
 
@@ -78,9 +80,15 @@ class DeleteResponse(BaseModel):
 
 class IndexRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=500, description="Document title")
-    content: str = Field(..., min_length=1, max_length=2_000_000, description="Document text content")
-    doc_type: str | None = Field(None, max_length=100, description="Document type (e.g., 'markdown', 'pdf')")
-    visibility: str = Field("TEAM", pattern="^(TEAM|PRIVATE)$", description="TEAM or PRIVATE")
+    content: str = Field(
+        ..., min_length=1, max_length=2_000_000, description="Document text content"
+    )
+    doc_type: str | None = Field(
+        None, max_length=100, description="Document type (e.g., 'markdown', 'pdf')"
+    )
+    visibility: str = Field(
+        "TEAM", pattern="^(TEAM|PRIVATE)$", description="TEAM or PRIVATE"
+    )
     metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
 
 

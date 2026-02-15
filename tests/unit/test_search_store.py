@@ -30,7 +30,9 @@ class TestSearchHybrid:
         """Search with no matches returns empty results."""
         mock_conn.fetch.return_value = []
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5
+        )
 
         assert result["results"] == []
         assert "debug" not in result or result.get("debug") is None
@@ -39,7 +41,9 @@ class TestSearchHybrid:
         """Search with no matches and debug=True returns debug info."""
         mock_conn.fetch.return_value = []
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True
+        )
 
         assert result["results"] == []
         assert result["debug"] is not None
@@ -67,7 +71,9 @@ class TestSearchHybrid:
             }
         ]
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5
+        )
 
         assert len(result["results"]) == 1
         assert result["results"][0]["document_id"] == str(doc_id)
@@ -79,7 +85,9 @@ class TestSearchHybrid:
         """Fix 4: search_hybrid uses a single conn.fetch (no separate best-chunks query)."""
         mock_conn.fetch.return_value = []
 
-        await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5)
+        await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5
+        )
 
         # Only one fetch call for the integrated query
         assert mock_conn.fetch.call_count == 1
@@ -99,7 +107,14 @@ class TestSearchHybrid:
         """candidate_limit = doc_limit * expansion * multiplier + 1."""
         mock_conn.fetch.return_value = []
 
-        await store.search_hybrid(mock_conn, "test", sample_query_vec, doc_limit=5, expansion=3, candidate_multiplier=1)
+        await store.search_hybrid(
+            mock_conn,
+            "test",
+            sample_query_vec,
+            doc_limit=5,
+            expansion=3,
+            candidate_multiplier=1,
+        )
 
         call_args = mock_conn.fetch.call_args
         # $2 = candidate_limit + 1 (position index 1 in args after SQL)
@@ -125,7 +140,9 @@ class TestSearchHybrid:
             }
         ]
 
-        result = await store.search_hybrid(mock_conn, "test", sample_query_vec, doc_limit=5)
+        result = await store.search_hybrid(
+            mock_conn, "test", sample_query_vec, doc_limit=5
+        )
 
         assert len(result["results"]) == 1
         assert result["results"][0]["chunks"] == []
@@ -165,7 +182,9 @@ class TestSearchHybrid:
             },
         ]
 
-        result = await store.search_hybrid(mock_conn, "test", sample_query_vec, doc_limit=5)
+        result = await store.search_hybrid(
+            mock_conn, "test", sample_query_vec, doc_limit=5
+        )
 
         assert len(result["results"]) == 1
         assert len(result["results"][0]["chunks"]) == 2
@@ -209,13 +228,17 @@ class TestSQLStructure:
         """Fix 8: FTS language passed as parameter $7."""
         mock_conn.fetch.return_value = []
 
-        await store.search_hybrid(mock_conn, "test", sample_query_vec, doc_limit=5, fts_language="spanish")
+        await store.search_hybrid(
+            mock_conn, "test", sample_query_vec, doc_limit=5, fts_language="spanish"
+        )
 
         call_args = mock_conn.fetch.call_args
         # $7 = fts_language (position index 6 in args after SQL)
         assert call_args[0][7] == "spanish"
 
-    async def test_fts_language_default_english(self, store, mock_conn, sample_query_vec):
+    async def test_fts_language_default_english(
+        self, store, mock_conn, sample_query_vec
+    ):
         """Fix 8: Default FTS language is 'english'."""
         mock_conn.fetch.return_value = []
 
@@ -229,7 +252,9 @@ class TestSQLStructure:
 class TestSearchDebugCutoffScores:
     """Fix 6: Verify cutoff scores and has_more accuracy."""
 
-    async def test_debug_includes_cutoff_scores(self, store, mock_conn, sample_query_vec):
+    async def test_debug_includes_cutoff_scores(
+        self, store, mock_conn, sample_query_vec
+    ):
         """When include_debug=True, cutoff scores are returned."""
         doc_id = uuid.uuid4()
         chunk_id = uuid.uuid4()
@@ -258,22 +283,30 @@ class TestSearchDebugCutoffScores:
             "text_cutoff_score": 0.15,
         }
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True
+        )
 
         assert result["debug"] is not None
         assert result["debug"]["vector_cutoff_score"] == 0.72
         assert result["debug"]["text_cutoff_score"] == 0.15
 
-    async def test_debug_cutoff_scores_none_when_no_results(self, store, mock_conn, sample_query_vec):
+    async def test_debug_cutoff_scores_none_when_no_results(
+        self, store, mock_conn, sample_query_vec
+    ):
         """With empty results, cutoff scores should be None."""
         mock_conn.fetch.return_value = []
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True
+        )
 
         assert result["debug"]["vector_cutoff_score"] is None
         assert result["debug"]["text_cutoff_score"] is None
 
-    async def test_debug_cutoff_scores_null_from_db(self, store, mock_conn, sample_query_vec):
+    async def test_debug_cutoff_scores_null_from_db(
+        self, store, mock_conn, sample_query_vec
+    ):
         """When DB returns NULL for cutoff scores (vector-only match), handle gracefully."""
         doc_id = uuid.uuid4()
 
@@ -301,7 +334,9 @@ class TestSearchDebugCutoffScores:
             "text_cutoff_score": None,
         }
 
-        result = await store.search_hybrid(mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True)
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec, doc_limit=5, include_debug=True
+        )
 
         assert result["debug"]["vector_cutoff_score"] == 0.85
         assert result["debug"]["text_cutoff_score"] is None
@@ -338,7 +373,9 @@ class TestSearchDebugCutoffScores:
             "text_cutoff_score": 0.1,
         }
 
-        result = await store.search_hybrid(mock_conn, "test", sample_query_vec, doc_limit=5, include_debug=True)
+        result = await store.search_hybrid(
+            mock_conn, "test", sample_query_vec, doc_limit=5, include_debug=True
+        )
 
         assert result["debug"]["vector_has_more"] is True
         assert result["debug"]["text_has_more"] is False

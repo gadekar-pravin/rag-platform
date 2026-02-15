@@ -414,7 +414,13 @@ class RagSearchStore:
             "vector_raw_count": int(row["vector_raw_count"] or 0),
             "text_raw_count": int(row["text_raw_count"] or 0),
             "vector_cutoff_score": (
-                float(row["vector_cutoff_score"]) if row["vector_cutoff_score"] is not None else None
+                float(row["vector_cutoff_score"])
+                if row["vector_cutoff_score"] is not None
+                else None
             ),
-            "text_cutoff_score": (float(row["text_cutoff_score"]) if row["text_cutoff_score"] is not None else None),
+            "text_cutoff_score": (
+                float(row["text_cutoff_score"])
+                if row["text_cutoff_score"] is not None
+                else None
+            ),
         }

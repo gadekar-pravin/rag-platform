@@ -24,7 +24,12 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from rag_service.auth import Identity, get_identity, is_public_path, require_auth_on_cloud_run
+from rag_service.auth import (
+    Identity,
+    get_identity,
+    is_public_path,
+    require_auth_on_cloud_run,
+)
 from rag_service.chunking.chunker import chunk_document
 from rag_service.config import (
     RAG_CHUNK_OVERLAP,
@@ -89,7 +94,9 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 
 if RAG_CORS_ALLOW_CREDENTIALS and "*" in RAG_CORS_ALLOW_ORIGINS:
-    raise RuntimeError("Invalid CORS config: wildcard origin cannot be combined with credentials=true")
+    raise RuntimeError(
+        "Invalid CORS config: wildcard origin cannot be combined with credentials=true"
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -110,7 +117,9 @@ async def body_size_middleware(request: Request, call_next):  # type: ignore[no-
     """Reject requests with bodies exceeding the size limit."""
     content_length = request.headers.get("content-length")
     if content_length is not None and int(content_length) > _MAX_BODY_BYTES:
-        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+        return JSONResponse(
+            status_code=413, content={"detail": "Request body too large"}
+        )
     return await call_next(request)
 
 
@@ -130,7 +139,9 @@ async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyp
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     except Exception as e:
         logger.warning("Auth middleware error: %s", e)
-        return JSONResponse(status_code=401, content={"detail": "Authentication failed"})
+        return JSONResponse(
+            status_code=401, content={"detail": "Authentication failed"}
+        )
 
     return await call_next(request)
 
@@ -194,7 +205,9 @@ async def search(
         query_vec = await embed_query(query_text)
     except Exception as e:
         logger.exception("Failed to generate query embedding")
-        raise HTTPException(status_code=503, detail="Embedding service unavailable") from e
+        raise HTTPException(
+            status_code=503, detail="Embedding service unavailable"
+        ) from e
 
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:
         raw = await _search_store.search_hybrid(
@@ -286,7 +299,9 @@ async def delete_document(
         deleted = await _doc_store.soft_delete(conn, doc_id)
 
     if not deleted:
-        raise HTTPException(status_code=404, detail="Document not found or not authorized")
+        raise HTTPException(
+            status_code=404, detail="Document not found or not authorized"
+        )
 
     return DeleteResponse(deleted=True, document_id=doc_id)
 
@@ -340,7 +355,9 @@ async def index_document(
         embeddings = await embed_chunks(chunks)
     except Exception as e:
         logger.exception("Failed to generate document embeddings")
-        raise HTTPException(status_code=503, detail="Embedding service unavailable") from e
+        raise HTTPException(
+            status_code=503, detail="Embedding service unavailable"
+        ) from e
 
     # Store via RLS-scoped connection
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:

@@ -121,23 +121,45 @@ class TestLiveness:
 
 
 class TestReadiness:
-    @patch("rag_service.app.check_embedding_service", new_callable=AsyncMock, return_value=True)
-    @patch("rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "rag_service.app.check_embedding_service",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
+    @patch(
+        "rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True
+    )
     async def test_readiness_ok(self, mock_db, mock_emb, client: AsyncClient):
         resp = await client.get("/readiness")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
-    @patch("rag_service.app.check_embedding_service", new_callable=AsyncMock, return_value=True)
-    @patch("rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=False)
+    @patch(
+        "rag_service.app.check_embedding_service",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
+    @patch(
+        "rag_service.app.check_db_connection",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
     async def test_readiness_db_down(self, mock_db, mock_emb, client: AsyncClient):
         resp = await client.get("/readiness")
         assert resp.status_code == 503
         assert "Database unavailable" in resp.json()["detail"]
 
-    @patch("rag_service.app.check_embedding_service", new_callable=AsyncMock, return_value=False)
-    @patch("rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True)
-    async def test_readiness_embedding_down(self, mock_db, mock_emb, client: AsyncClient):
+    @patch(
+        "rag_service.app.check_embedding_service",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
+    @patch(
+        "rag_service.app.check_db_connection", new_callable=AsyncMock, return_value=True
+    )
+    async def test_readiness_embedding_down(
+        self, mock_db, mock_emb, client: AsyncClient
+    ):
         """When DB is OK but embedding is down, status is degraded (not 503)."""
         resp = await client.get("/readiness")
         assert resp.status_code == 200
@@ -333,7 +355,9 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 1})
+            mock_ds.check_dedup = AsyncMock(
+                return_value={"document_id": doc_id, "total_chunks": 1}
+            )
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},
@@ -423,8 +447,16 @@ class TestIndexEndpoint:
             assert call_kwargs["visibility"] == "TEAM"
 
     @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
-    @patch("rag_service.app.embed_chunks", new_callable=AsyncMock, side_effect=RuntimeError("API down"))
-    @patch("rag_service.app.chunk_document", new_callable=AsyncMock, return_value=["chunk-1"])
+    @patch(
+        "rag_service.app.embed_chunks",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("API down"),
+    )
+    @patch(
+        "rag_service.app.chunk_document",
+        new_callable=AsyncMock,
+        return_value=["chunk-1"],
+    )
     async def test_index_embedding_failure_returns_503(
         self,
         mock_chunk: AsyncMock,
@@ -512,7 +544,9 @@ class TestIndexEndpoint:
         doc_id = str(uuid.uuid4())
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.check_dedup = AsyncMock(return_value={"document_id": doc_id, "total_chunks": 3})
+            mock_ds.check_dedup = AsyncMock(
+                return_value={"document_id": doc_id, "total_chunks": 3}
+            )
             resp = await client.post(
                 "/v1/index",
                 json={"title": "Dup Doc", "content": "Duplicate content."},

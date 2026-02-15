@@ -40,7 +40,14 @@ def download_bytes(client: Client, bucket: str, name: str) -> bytes:
     return cast(bytes, blob.download_as_bytes())
 
 
-def upload_text(client: Client, bucket: str, name: str, text: str, *, content_type: str = "text/plain") -> None:
+def upload_text(
+    client: Client,
+    bucket: str,
+    name: str,
+    text: str,
+    *,
+    content_type: str = "text/plain",
+) -> None:
     b = client.bucket(bucket)
     blob = b.blob(name)
     blob.upload_from_string(text, content_type=content_type)

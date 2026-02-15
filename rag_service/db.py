@@ -100,7 +100,9 @@ async def check_db_connection() -> bool:
 
 
 @asynccontextmanager
-async def rls_connection(tenant_id: str, user_id: str) -> AsyncIterator[asyncpg.Connection]:
+async def rls_connection(
+    tenant_id: str, user_id: str
+) -> AsyncIterator[asyncpg.Connection]:
     """Acquire a connection with RLS session variables set.
 
     Sets `app.tenant_id` and `app.user_id` via SET LOCAL (transaction-scoped)

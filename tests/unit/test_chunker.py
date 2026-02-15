@@ -67,7 +67,9 @@ class TestChunkDocument:
             assert c.strip()  # no whitespace-only chunks
 
     async def test_overlap_applied(self):
-        text = "Section A content here. " * 20 + "\n\n" + "Section B content here. " * 20
+        text = (
+            "Section A content here. " * 20 + "\n\n" + "Section B content here. " * 20
+        )
         chunks = await chunk_document(text, chunk_size=200, chunk_overlap=50)
         if len(chunks) > 1:
             # Later chunks should contain overlap from previous
@@ -108,15 +110,17 @@ class TestChunkDocumentWithSpans:
 
     async def test_offsets_match_original_text(self):
         """For each chunk, text[start:end] == chunk_text."""
-        text = "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here."
+        text = (
+            "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here."
+        )
         spans = await chunk_document_with_spans(text, chunk_size=30, chunk_overlap=0)
 
         assert len(spans) >= 2
         for chunk_text, start, end in spans:
             if start is not None and end is not None:
-                assert text[start:end] == chunk_text, (
-                    f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
-                )
+                assert (
+                    text[start:end] == chunk_text
+                ), f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
 
     async def test_offsets_with_overlap(self):
         """Overlapped chunks still have valid offsets."""
@@ -126,9 +130,9 @@ class TestChunkDocumentWithSpans:
         assert len(spans) >= 2
         for chunk_text, start, end in spans:
             if start is not None and end is not None:
-                assert text[start:end] == chunk_text, (
-                    f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
-                )
+                assert (
+                    text[start:end] == chunk_text
+                ), f"Offset mismatch: text[{start}:{end}] = {text[start:end]!r} != {chunk_text!r}"
 
     async def test_repeated_text_no_drift(self):
         """Repeated text doesn't cause offset drift (the old find() bug)."""
@@ -139,9 +143,9 @@ class TestChunkDocumentWithSpans:
         assert len(spans) >= 2
         for chunk_text, start, end in spans:
             if start is not None and end is not None:
-                assert text[start:end] == chunk_text, (
-                    f"Offset drift with repeated text: text[{start}:{end}] != chunk_text"
-                )
+                assert (
+                    text[start:end] == chunk_text
+                ), f"Offset drift with repeated text: text[{start}:{end}] != chunk_text"
 
     async def test_single_chunk_offsets(self):
         """Short text produces one chunk with start=0."""

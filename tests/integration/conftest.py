@@ -50,7 +50,8 @@ async def clean_tables(db_pool):
     """Truncate all rag_* tables before each test."""
     async with db_pool.acquire() as conn:
         # Disable RLS temporarily for cleanup (requires superuser or table owner)
-        await conn.execute("""
+        await conn.execute(
+            """
             TRUNCATE
                 rag_ingestion_items,
                 rag_ingestion_runs,
@@ -58,7 +59,8 @@ async def clean_tables(db_pool):
                 rag_document_chunks,
                 rag_documents
             CASCADE
-        """)
+        """
+        )
     yield
 
 

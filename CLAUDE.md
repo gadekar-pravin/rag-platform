@@ -182,6 +182,13 @@ Public paths that skip auth: `/liveness`, `/readiness`, `/docs`, `/openapi.json`
 
 Results are formatted as concise text for LLM consumption (titles, scores, truncated chunks).
 
+**Auth to RAG Service** (`rag_mcp/oidc.py` + `tools.py`): Token priority in `_get_headers()`:
+1. **OIDC service token** (Cloud Run) — auto-minted via GCE metadata server using the MCP service account, targeting `RAG_SERVICE_URL` as audience. Cached and refreshed 5 min before expiry. Uses stdlib `urllib.request` (no extra dependencies).
+2. **Caller-forwarded token** — when `RAG_MCP_FORWARD_CALLER_TOKEN=true` (default) and a caller token is available.
+3. **Static `RAG_MCP_TOKEN`** — local dev fallback.
+
+Cloud Run detection: `K_SERVICE` env var (set automatically by Cloud Run).
+
 ### Ingestion Pipeline
 
 `rag_service/ingestion/` — Batch import from GCS with text extraction, OCR fallback, chunking, and embedding.
@@ -233,6 +240,7 @@ rag_service/              # Core RAG API service
 rag_mcp/                  # MCP server for VS Code Copilot
   server.py               # FastMCP with streamable HTTP transport
   tools.py                # rag_search + rag_list_documents (retry + sanitized errors)
+  oidc.py                 # OIDC token minting via GCE metadata server (Cloud Run)
   config.py               # RAG_SERVICE_URL, auth config
   Dockerfile              # Lightweight image + HEALTHCHECK + pinned deps
 
@@ -254,6 +262,8 @@ tests/
     test_chunker.py       # Edge cases, overlap, splitting
     test_ingestion.py     # Source hash, extractors, planner, config, normalize_text
     test_endpoints.py     # FastAPI endpoints, middleware, auth, body size, rate limits
+    test_mcp_oidc.py      # OIDC token minting, caching, refresh, stale fallback
+    test_mcp_tools.py     # MCP token priority (OIDC > caller > static), context extraction
   integration/            # Requires AlloyDB (gracefully skips when unavailable)
     test_rls.py           # FORCE RLS, tenant isolation, PRIVATE visibility
     test_dedup.py         # COALESCE NULL, cascade, per-owner dedup

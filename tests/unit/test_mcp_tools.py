@@ -29,6 +29,31 @@ class TestTokenHeaderSelection:
         assert headers["Authorization"] == "Bearer service-token"
 
 
+class TestOidcServiceToken:
+    """OIDC service token takes priority over caller/static tokens."""
+
+    @patch("rag_mcp.tools.get_service_token", return_value="oidc-token-123")
+    @patch("rag_mcp.tools.RAG_MCP_FORWARD_CALLER_TOKEN", True)
+    @patch("rag_mcp.tools.RAG_MCP_TOKEN", "static-token")
+    def test_oidc_token_takes_priority(self, _mock_oidc):
+        headers = _get_headers(caller_token="caller-token")
+        assert headers["Authorization"] == "Bearer oidc-token-123"
+
+    @patch("rag_mcp.tools.get_service_token", return_value=None)
+    @patch("rag_mcp.tools.RAG_MCP_FORWARD_CALLER_TOKEN", True)
+    @patch("rag_mcp.tools.RAG_MCP_TOKEN", "static-token")
+    def test_falls_back_to_caller_when_oidc_none(self, _mock_oidc):
+        headers = _get_headers(caller_token="caller-token")
+        assert headers["Authorization"] == "Bearer caller-token"
+
+    @patch("rag_mcp.tools.get_service_token", return_value=None)
+    @patch("rag_mcp.tools.RAG_MCP_FORWARD_CALLER_TOKEN", False)
+    @patch("rag_mcp.tools.RAG_MCP_TOKEN", "static-token")
+    def test_falls_back_to_static_when_oidc_none_and_forward_off(self, _mock_oidc):
+        headers = _get_headers(caller_token="caller-token")
+        assert headers["Authorization"] == "Bearer static-token"
+
+
 class TestContextExtraction:
     def test_extracts_bearer_from_request_headers(self):
         ctx = _ctx_with_auth("Bearer abc123")

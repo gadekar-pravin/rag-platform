@@ -12,14 +12,28 @@ from typing import Any
 import httpx
 
 from rag_mcp.config import RAG_MCP_FORWARD_CALLER_TOKEN, RAG_MCP_TOKEN, RAG_SERVICE_URL
+from rag_mcp.oidc import get_service_token
 
 logger = logging.getLogger(__name__)
 
 
 def _get_headers(caller_token: str | None = None) -> dict[str, str]:
-    """Build auth headers for the RAG service."""
+    """Build auth headers for the RAG service.
+
+    Token priority:
+    1. OIDC service token (Cloud Run — minted via service account)
+    2. Caller-forwarded token (when RAG_MCP_FORWARD_CALLER_TOKEN is true)
+    3. Static RAG_MCP_TOKEN (local dev fallback)
+    """
     headers: dict[str, str] = {"Content-Type": "application/json"}
 
+    # 1. OIDC service token (Cloud Run service-to-service)
+    oidc_token = get_service_token(RAG_SERVICE_URL)
+    if oidc_token:
+        headers["Authorization"] = f"Bearer {oidc_token}"
+        return headers
+
+    # 2. Caller-forwarded token or 3. Static token
     token = caller_token if (RAG_MCP_FORWARD_CALLER_TOKEN and caller_token) else RAG_MCP_TOKEN
     if token:
         headers["Authorization"] = f"Bearer {token}"

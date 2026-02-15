@@ -91,7 +91,7 @@ curl http://localhost:8000/v1/documents \
 | Service | Purpose | Port | Auth |
 |---|---|---|---|
 | **RAG Service** (`rag_service/`) | Owns the database, embedding pipeline, and search logic | 8000 (dev) / 8080 (prod) | Cloud Run OIDC or shared dev token |
-| **MCP Server** (`rag_mcp/`) | Exposes `search` and `list_documents` tools to VS Code Copilot | 8001 | Forwards caller bearer token to RAG Service (fallback: `RAG_MCP_TOKEN`) |
+| **MCP Server** (`rag_mcp/`) | Exposes `search` and `list_documents` tools to VS Code Copilot | 8001 | On Cloud Run: auto-mints OIDC token via metadata server. Local dev: forwards caller token or `RAG_MCP_TOKEN` |
 
 ### Database Schema
 
@@ -382,6 +382,7 @@ rag_service/              # Core RAG API (FastAPI)
 rag_mcp/                  # MCP server for VS Code Copilot
   server.py               # FastMCP with streamable HTTP transport
   tools.py                # search + list_documents tools
+  oidc.py                 # OIDC token minting via metadata server (Cloud Run)
 
 alembic/                  # Database migrations
   versions/001_rag_tables.py  # 5 tables, RLS policies, 3 dedup indexes

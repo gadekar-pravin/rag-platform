@@ -399,7 +399,7 @@ gcloud run services add-iam-policy-binding rag-service \
   --role="roles/run.invoker"
 ```
 
-> The MCP server forwards the caller's OIDC token to the RAG Service when `RAG_MCP_FORWARD_CALLER_TOKEN=true` (default). This means the end user's identity flows through to RLS.
+> **Auth to RAG Service:** On Cloud Run, the MCP server auto-mints its own OIDC ID token via the GCE metadata server, targeting `RAG_SERVICE_URL` as audience. The `rag-mcp` service account (with `roles/run.invoker`) is the caller identity. No manual token configuration is needed. In local dev, it falls back to forwarding the caller's token (when `RAG_MCP_FORWARD_CALLER_TOKEN=true`) or using `RAG_MCP_TOKEN`.
 
 ---
 
@@ -801,6 +801,12 @@ Rate limits are per-IP. Adjust Cloud Run `--max-instances` and `DB_POOL_MAX` tog
 **Cause:** The MCP server cannot reach the RAG Service.
 **Fix:** Verify `RAG_SERVICE_URL` is correct (should be the full Cloud Run URL), the MCP service account has `run.invoker` on the RAG Service, and the RAG Service is healthy.
 **Ref:** `rag_mcp/config.py:7`
+
+### MCP "Authentication failed" (401 from RAG Service)
+
+**Cause:** The MCP server's OIDC token is not being accepted by the RAG Service's Cloud Run IAM. Common reasons: (1) `rag-mcp` SA missing `roles/run.invoker` on `rag-service`, (2) `RAG_SERVICE_URL` doesn't match the RAG Service's Cloud Run URL (used as OIDC audience), (3) the metadata server is unreachable (check `rag_mcp/oidc.py` logs for "Failed to mint OIDC token").
+**Fix:** Verify the IAM binding with `gcloud run services get-iam-policy rag-service` and check that `RAG_SERVICE_URL` matches `gcloud run services describe rag-service --format='value(status.url)'`.
+**Ref:** `rag_mcp/oidc.py`, `rag_mcp/tools.py:_get_headers()`
 
 ### `ValueError: tenant_id and user_id are required (fail-closed)`
 

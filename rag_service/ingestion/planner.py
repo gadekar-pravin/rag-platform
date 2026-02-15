@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from google.cloud import storage
+from google.cloud.storage import Client
 
 from rag_service.ingestion.gcs import gs_uri
 from rag_service.ingestion.types import WorkItem
@@ -59,7 +59,7 @@ def build_prefix(tenant_id: str, under_tenant_prefix: str) -> str:
 
 
 def discover_work_items(
-    client: storage.Client,
+    client: Client,
     *,
     bucket: str,
     tenant_id: str,

@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import UTC, datetime
 
-from google.cloud import storage
+from google.cloud.storage import Client
 
 from rag_service.chunking.chunker import chunk_document_with_spans
 from rag_service.db import rls_connection
@@ -30,7 +30,7 @@ def _now() -> datetime:
 
 
 class IngestionRunner:
-    def __init__(self, *, cfg: IngestConfig, storage_client: storage.Client) -> None:
+    def __init__(self, *, cfg: IngestConfig, storage_client: Client) -> None:
         self._cfg = cfg
         self._gcs = storage_client
         self._store = RagDocumentStore()

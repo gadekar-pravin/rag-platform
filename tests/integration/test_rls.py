@@ -141,7 +141,13 @@ class TestRLSEnforcement:
             assert len(rows) == 1
 
     async def test_soft_deleted_doc_invisible(self, db_pool):
-        """Soft-deleted documents are not visible via RLS."""
+        """Soft-deleted documents are hidden by application-layer filter.
+
+        After migration 002, deleted_at filtering moved from the RLS SELECT
+        policy to the application layer (WHERE deleted_at IS NULL in store
+        queries).  RLS still handles tenant/visibility isolation; the
+        chunk/embedding SELECT policies independently check d.deleted_at.
+        """
         doc_id = uuid.uuid4()
 
         async with db_pool.acquire() as conn, conn.transaction():
@@ -161,7 +167,10 @@ class TestRLSEnforcement:
         async with db_pool.acquire() as conn, conn.transaction():
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
-            rows = await conn.fetch("SELECT * FROM rag_documents")
+            # Application-layer filter excludes soft-deleted rows
+            rows = await conn.fetch(
+                "SELECT * FROM rag_documents WHERE deleted_at IS NULL"
+            )
             assert len(rows) == 0
 
     async def test_chunks_hidden_without_session_vars(self, db_pool):

@@ -124,13 +124,13 @@ class TestHybridSearch:
                 chunks=["Machine learning algorithms for data science"],
                 embeddings=[query_vec],  # identical to query = best vector match
             )
-            # Doc that matches only text
+            # Doc that matches only vector (no FTS match)
             await doc_store.upsert_document(
                 conn,
                 tenant_id="t1",
-                title="Text Only",
-                content="Machine learning frameworks comparison",
-                chunks=["Machine learning frameworks comparison"],
+                title="Vector Only",
+                content="Abstract painting and modern art history",
+                chunks=["Abstract painting and modern art history"],
                 embeddings=[_make_embedding(999)],  # far from query
             )
 
@@ -138,12 +138,17 @@ class TestHybridSearch:
             await conn.execute("SELECT set_config('app.tenant_id', $1, true)", "t1")
             await conn.execute("SELECT set_config('app.user_id', $1, true)", "u1@test.com")
 
-            result = await search_store.search_hybrid(conn, "machine learning", query_vec, doc_limit=10)
+            result = await search_store.search_hybrid(
+                conn, "machine learning algorithms", query_vec, doc_limit=10
+            )
 
             assert len(result["results"]) >= 1
-            # Best Match should rank highest (matches both signals)
-            assert result["results"][0]["title"] == "Best Match"
-            assert result["results"][0]["rrf_score"] > 0
+            # Best Match should rank highest (matches both vector and text signals)
+            best = result["results"][0]
+            assert best["title"] == "Best Match"
+            assert best["vector_score"] > 0
+            assert best["text_score"] > 0
+            assert best["rrf_score"] > 0
 
     async def test_debug_metrics_returned(self, db_pool, doc_store, search_store):
         """Debug mode returns pool sizes and has_more flags."""

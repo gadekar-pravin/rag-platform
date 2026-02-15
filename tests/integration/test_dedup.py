@@ -164,7 +164,7 @@ class TestContentHashDedup:
             assert r2["status"] == "deduplicated"
 
     async def test_cascade_delete_chunks_and_embeddings(self, db_pool, store):
-        """Deleting a document cascades to chunks and embeddings."""
+        """Soft-deleting a document hides its chunks via RLS."""
         content = "Cascade test content"
         chunks = ["chunk one", "chunk two"]
         embeddings = [[0.1] * 768, [0.2] * 768]
@@ -191,11 +191,12 @@ class TestContentHashDedup:
             assert chunk_count == 2
 
             # Soft delete
-            await store.soft_delete(conn, result["document_id"])
+            deleted = await store.soft_delete(conn, result["document_id"])
+            assert deleted is True
 
-            # Chunks still exist (soft delete doesn't cascade)
+            # Chunks are hidden by RLS (chunk SELECT policy checks d.deleted_at IS NULL)
             chunk_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM rag_document_chunks WHERE document_id = $1",
                 doc_id,
             )
-            assert chunk_count == 2
+            assert chunk_count == 0

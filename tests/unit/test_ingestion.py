@@ -6,10 +6,9 @@ Gracefully skips if ingestion dependencies are not installed.
 
 from __future__ import annotations
 
-import contextlib
 import sys
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -500,7 +499,6 @@ class TestPdfExtractorOcrGuard:
 
 
 @_need_ingestion_deps
-@_need_ingestion_deps
 class TestChunksTruncatedContent:
     """Fix 3: chunk_document_with_spans receives truncated content, not full text."""
 
@@ -531,45 +529,53 @@ class TestChunksTruncatedContent:
         item = _make_item(doc_type="text")
         long_text = "A" * 500  # Exceeds max_content_chars=100
 
+        mock_conn = AsyncMock()
+        mock_rls_cm = AsyncMock()
+        mock_rls_cm.__aenter__.return_value = mock_conn
+
+        mock_store = MagicMock()
+        mock_store.upsert_document_by_source_uri = AsyncMock(
+            return_value={
+                "document_id": "doc-1",
+                "status": "indexed",
+                "total_chunks": 1,
+            }
+        )
+        runner._store = mock_store
+
         with (
-            patch("rag_service.ingestion.runner.download_bytes", return_value=long_text.encode()),
-            patch("rag_service.ingestion.runner.chunk_document_with_spans") as mock_chunk,
-            patch("rag_service.ingestion.runner.embed_chunks", new_callable=MagicMock) as mock_embed,
-            patch("rag_service.ingestion.runner.rls_connection") as mock_rls,
+            patch(
+                "rag_service.ingestion.runner.download_bytes",
+                return_value=long_text.encode(),
+            ),
+            patch(
+                "rag_service.ingestion.runner.chunk_document_with_spans",
+                new_callable=AsyncMock,
+                return_value=[("chunk1", 0, 50)],
+            ) as mock_chunk,
+            patch(
+                "rag_service.ingestion.runner.embed_chunks",
+                new_callable=AsyncMock,
+                return_value=[[0.1] * 768],
+            ),
+            patch(
+                "rag_service.ingestion.runner.rls_connection",
+                return_value=mock_rls_cm,
+            ),
         ):
-            mock_chunk.return_value = [("chunk1", 0, 50)]
-            mock_embed.return_value = [[0.1] * 768]
-
-            mock_conn = MagicMock()
-            mock_conn.fetchval = MagicMock(return_value="run-id")
-            mock_conn.execute = MagicMock()
-            mock_conn.executemany = MagicMock()
-
-            mock_rls_cm = MagicMock()
-            mock_rls_cm.__aenter__ = MagicMock(return_value=mock_conn)
-            mock_rls_cm.__aexit__ = MagicMock(return_value=False)
-            mock_rls.return_value = mock_rls_cm
-
-            mock_store = MagicMock()
-            mock_store.upsert_document_by_source_uri = MagicMock(
-                return_value={"document_id": "doc-1", "status": "indexed", "total_chunks": 1}
+            await runner._process_item_once(
+                tenant_id="t1",
+                run_id="r1",
+                item=item,
+                under_tenant_prefix="incoming/",
+                force=True,
+                user_id="bot",
             )
-            runner._store = mock_store
 
-            with contextlib.suppress(Exception):
-                await runner._process_item_once(
-                    tenant_id="t1",
-                    run_id="r1",
-                    item=item,
-                    under_tenant_prefix="incoming/",
-                    force=True,
-                    user_id="bot",
-                )
-
-            # Verify chunker received truncated content (100 chars, not 500)
-            if mock_chunk.called:
-                chunked_text = mock_chunk.call_args[0][0]
-                assert len(chunked_text) == 100
+            # Verify chunker was called and received truncated content
+            assert mock_chunk.called
+            chunked_text = mock_chunk.call_args[0][0]
+            assert len(chunked_text) == 100
 
 
 class TestDocaiOutputPrefixDeferred:
@@ -627,6 +633,91 @@ class TestDocaiOutputPrefixDeferred:
         result = runner._docai_output_prefix(tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf")
         assert result is not None
         assert result.startswith("gs://out-bucket/")
+
+
+class TestAsyncIOThreadWrapping:
+    """Fix 1: Verify blocking I/O calls in runner are wrapped with asyncio.to_thread."""
+
+    def test_runner_source_uses_to_thread(self):
+        """runner.py wraps download_bytes/extract/upload_text in asyncio.to_thread."""
+        import inspect
+
+        from rag_service.ingestion import runner
+
+        source = inspect.getsource(runner.IngestionRunner._process_item_once)
+
+        assert "asyncio.to_thread(download_bytes" in source
+        assert "asyncio.to_thread(extractor.extract" in source
+        assert "asyncio.to_thread(upload_text" in source
+
+    def test_blocking_calls_are_awaited(self):
+        """Each asyncio.to_thread call is awaited."""
+        import inspect
+
+        from rag_service.ingestion import runner
+
+        source = inspect.getsource(runner.IngestionRunner._process_item_once)
+
+        assert "await asyncio.to_thread(download_bytes" in source
+        assert "await asyncio.to_thread(extractor.extract" in source
+        assert "await asyncio.to_thread(upload_text" in source
+
+
+class TestUnchangedUpsertSkipsContent:
+    """Fix 3: Verify unchanged-path UPDATE does not write content column."""
+
+    async def test_unchanged_update_sql_omits_content(self):
+        """The unchanged-path UPDATE should not include 'content ='."""
+        from rag_service.stores.rag_document_store import RagDocumentStore
+
+        store = RagDocumentStore()
+        mock_conn = AsyncMock()
+        # conn.transaction() must return an async context manager, not a coroutine
+        mock_tx = AsyncMock()
+        mock_conn.transaction = MagicMock(return_value=mock_tx)
+
+        import hashlib
+
+        from rag_service.config import (
+            RAG_EMBEDDING_DIM,
+            RAG_EMBEDDING_MODEL,
+            RAG_INGESTION_VERSION,
+        )
+
+        content = "test content"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        existing_row = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "content_hash": content_hash,
+            "source_hash": "src123",
+            "ingestion_version": RAG_INGESTION_VERSION,
+            "chunk_method": "rule_based",
+            "embedding_model": RAG_EMBEDDING_MODEL,
+            "embedding_dim": RAG_EMBEDDING_DIM,
+            "total_chunks": 5,
+        }
+        mock_conn.fetchrow.return_value = existing_row
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        result = await store.upsert_document_by_source_uri(
+            mock_conn,
+            tenant_id="t1",
+            source_uri="gs://bucket/file.txt",
+            source_hash="src123",
+            title="Test",
+            content=content,
+            chunks=["c1"],
+            embeddings=[[0.1] * 768],
+            skip_if_unchanged=True,
+        )
+
+        assert result["status"] == "unchanged"
+        # Verify the UPDATE SQL does not contain 'content ='
+        update_call = mock_conn.execute.call_args
+        update_sql = update_call[0][0]
+        assert "content =" not in update_sql
+        assert "source_hash =" in update_sql
 
 
 class TestNormalizeText:

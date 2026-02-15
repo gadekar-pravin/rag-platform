@@ -122,14 +122,6 @@ class TestGetServiceToken:
 class TestUrllibParseImport:
     """Verify that urllib.parse is explicitly imported (Fix 1)."""
 
-    def test_mint_token_uses_urllib_parse_quote(self):
-        """_mint_token constructs URL with urllib.parse.quote — verify it's importable."""
-        import urllib.parse
-
-        # Verify the module is available and the function _mint_token references works
-        result = urllib.parse.quote("https://rag.example.com", safe="")
-        assert "%" in result  # colons and slashes should be percent-encoded
-
     @patch("rag_mcp.oidc.urllib.request.urlopen")
     def test_mint_token_encodes_audience(self, mock_urlopen):
         """_mint_token URL-encodes the audience parameter."""

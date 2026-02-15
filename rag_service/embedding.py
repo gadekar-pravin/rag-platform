@@ -15,7 +15,7 @@ import logging
 import os
 from collections.abc import Sequence
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from google import genai
@@ -110,7 +110,7 @@ def get_embeddings_batch(texts: list[str], task_type: str = RAG_EMBEDDING_TASK_D
 
     response = client.models.embed_content(
         model=RAG_EMBEDDING_MODEL,
-        contents=texts,
+        contents=cast(Any, texts),
         config={"task_type": task_type, "output_dimensionality": RAG_EMBEDDING_DIM},
     )
 

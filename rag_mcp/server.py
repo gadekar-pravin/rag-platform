@@ -6,28 +6,47 @@ integration. Runs as a separate Cloud Run service.
 
 from __future__ import annotations
 
-from typing import Any
-
-from mcp.server.fastmcp import FastMCP
-
-try:
-    from mcp.server.fastmcp import Context
-except ImportError:  # pragma: no cover - older SDK fallback
-    Context = Any  # type: ignore[misc,assignment]
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 from rag_mcp.config import MCP_PORT
 from rag_mcp.tools import extract_bearer_from_context, rag_list_documents, rag_search
 
-mcp = FastMCP(
-    name="rag-search",
-    instructions=(
-        "Search and browse the team's shared document knowledge base. "
-        "Use rag_search to find relevant documents by natural language query. "
-        "Use rag_list_documents to browse available documents."
-    ),
-    host="0.0.0.0",
-    port=MCP_PORT,
-)
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+class _FastMCPServer(Protocol):
+    def tool(self) -> Callable[[F], F]: ...
+
+    def run(self, *, transport: str) -> None: ...
+
+
+if TYPE_CHECKING:
+
+    class Context: ...
+
+    mcp: _FastMCPServer
+else:
+    try:
+        from mcp.server.fastmcp import Context
+    except ImportError:  # pragma: no cover - older SDK fallback
+        Context = Any
+
+    from mcp.server.fastmcp import FastMCP as _FastMCPRuntime
+
+    mcp = cast(
+        _FastMCPServer,
+        _FastMCPRuntime(
+            name="rag-search",
+            instructions=(
+                "Search and browse the team's shared document knowledge base. "
+                "Use rag_search to find relevant documents by natural language query. "
+                "Use rag_list_documents to browse available documents."
+            ),
+            host="0.0.0.0",
+            port=MCP_PORT,
+        ),
+    )
 
 
 @mcp.tool()

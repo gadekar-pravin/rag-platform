@@ -388,8 +388,12 @@ gcloud run deploy rag-mcp \
   --set-env-vars="\
 RAG_SERVICE_URL=${RAG_URL},\
 MCP_PORT=8001" \
-  --no-allow-unauthenticated
+  --allow-unauthenticated
 ```
+
+> **Current state:** `rag-mcp` is public (`allUsers`), which is why VS Code can connect without a user token.
+>
+> **Optional hardening (recommended):** lock down MCP IAM later by removing `allUsers` and granting `roles/run.invoker` only to specific principals. If you do this, switch VS Code to token-based MCP auth (see [Section 12](#12-vs-code-copilot-configuration)).
 
 **Grant `run.invoker`** so the MCP Server's service account can call the RAG Service:
 
@@ -626,6 +630,29 @@ Add MCP configuration to your workspace:
   "servers": {
     "rag-search": {
       "type": "http",
+      "url": "https://rag-mcp-HASH.a.run.app/mcp"
+    }
+  }
+}
+```
+
+Replace `HASH` with your actual Cloud Run service hash:
+
+```bash
+gcloud run services describe rag-mcp --region=us-central1 --format='value(status.url)'
+```
+
+In the current public mode, VS Code connects without prompting for a token.
+
+### Optional: Token-Based Config (If MCP IAM Is Locked Down)
+
+If you remove `allUsers` from `rag-mcp`, use this config instead:
+
+```json
+{
+  "servers": {
+    "rag-search": {
+      "type": "http",
       "url": "https://rag-mcp-HASH.a.run.app/mcp",
       "headers": {
         "Authorization": "Bearer ${input:rag-token}"
@@ -636,20 +663,25 @@ Add MCP configuration to your workspace:
     {
       "id": "rag-token",
       "type": "promptString",
-      "description": "RAG service auth token (RAG_SHARED_TOKEN or OIDC identity token)",
+      "description": "RAG MCP OIDC token",
       "password": true
     }
   ]
 }
 ```
 
-Replace `HASH` with your actual Cloud Run service hash:
+For IAM mode, generate a token with service account impersonation:
 
 ```bash
-gcloud run services describe rag-mcp --region=us-central1 --format='value(status.url)'
+gcloud auth print-identity-token \
+  --impersonate-service-account=SA_NAME@${PROJECT_ID}.iam.gserviceaccount.com \
+  --audiences="https://rag-mcp-HASH.a.run.app"
 ```
 
-VS Code will prompt for the token on first connection. For local dev, use your `RAG_SHARED_TOKEN` value.
+Required IAM in that mode:
+
+- `roles/run.invoker` on `rag-mcp` for your principal (or impersonated service account)
+- `roles/iam.serviceAccountTokenCreator` on the impersonated service account
 
 **Available MCP tools:**
 

@@ -178,9 +178,26 @@ Each result includes the **best 4 chunks** per document (2 from vector, 2 from t
 
 Data engineers can search documents from VS Code by configuring the MCP server.
 
-### Setup
+### Setup (Current: Public `rag-mcp`)
 
 Add to `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "rag-search": {
+      "type": "http",
+      "url": "https://rag-mcp-<hash>.a.run.app/mcp"
+    }
+  }
+}
+```
+
+No user token is required in the current public setup.
+
+### Optional Setup (If MCP IAM Is Locked Down)
+
+Use this config when `rag-mcp` no longer allows unauthenticated access:
 
 ```json
 {
@@ -197,11 +214,19 @@ Add to `.vscode/mcp.json` in your workspace:
     {
       "id": "rag-token",
       "type": "promptString",
-      "description": "RAG service auth token (RAG_SHARED_TOKEN or OIDC identity token)",
+      "description": "RAG MCP OIDC token",
       "password": true
     }
   ]
 }
+```
+
+Generate the token with service account impersonation:
+
+```bash
+gcloud auth print-identity-token \
+  --impersonate-service-account=SA_NAME@apexflow-ai.iam.gserviceaccount.com \
+  --audiences="https://rag-mcp-<hash>.a.run.app"
 ```
 
 ### Available Tools
@@ -394,7 +419,7 @@ scripts/                  # ScaNN indexes, dev data seeding
 
 ## Security Note
 
-The MCP server on Cloud Run currently has `allUsers` with `roles/run.invoker`, meaning it is publicly accessible. The RAG service behind it is properly secured (OIDC + RLS), so data access is still tenant-scoped. See [Future Roadmap](#future-roadmap) for the planned fix.
+The MCP server on Cloud Run currently has `allUsers` with `roles/run.invoker`, meaning it is publicly accessible. The RAG service behind it is properly secured (OIDC + RLS), so data access is still tenant-scoped. Current MCP calls use service identity (not per-user passthrough), so per-user PRIVATE-owner visibility is not yet enforced for individual VS Code users. See [Future Roadmap](#future-roadmap) for the planned fixes.
 
 ## Future Roadmap
 

@@ -6,10 +6,17 @@ integration. Runs as a separate Cloud Run service.
 
 from __future__ import annotations
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
+try:
+    from mcp.server.fastmcp import Context
+except ImportError:  # pragma: no cover - older SDK fallback
+    Context = Any  # type: ignore[misc,assignment]
+
 from rag_mcp.config import MCP_PORT
-from rag_mcp.tools import rag_list_documents, rag_search
+from rag_mcp.tools import extract_bearer_from_context, rag_list_documents, rag_search
 
 mcp = FastMCP(
     name="rag-search",
@@ -22,25 +29,25 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-async def search(query: str, limit: int = 10) -> str:
+async def search(query: str, limit: int = 10, ctx: Context | None = None) -> str:
     """Search the team's document knowledge base.
 
     Args:
         query: Natural language search query describing what you're looking for.
         limit: Maximum number of documents to return (1-50, default 10).
     """
-    return await rag_search(query, limit)
+    return await rag_search(query, limit, caller_token=extract_bearer_from_context(ctx))
 
 
 @mcp.tool()
-async def list_documents(limit: int = 20, offset: int = 0) -> str:
+async def list_documents(limit: int = 20, offset: int = 0, ctx: Context | None = None) -> str:
     """List available documents in the knowledge base.
 
     Args:
         limit: Maximum number of documents to return (default 20).
         offset: Number of documents to skip for pagination (default 0).
     """
-    return await rag_list_documents(limit, offset)
+    return await rag_list_documents(limit, offset, caller_token=extract_bearer_from_context(ctx))
 
 
 def main() -> None:

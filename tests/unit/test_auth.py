@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -82,22 +82,58 @@ class TestGetIdentity:
         mock_id_token.verify_token.return_value = {
             "email": "user@company.com",
             "sub": "12345",
+            "iss": "https://accounts.google.com",
         }
         request = _make_request(auth_header="Bearer valid-oidc-token")
         identity = await get_identity(request)
         assert identity.tenant_id == "my-tenant"
         assert identity.user_id == "user@company.com"
         assert identity.principal == "user@company.com"
+        mock_id_token.verify_token.assert_called_once()
 
     @patch("rag_service.auth.IS_CLOUD_RUN", False)
     @patch("rag_service.auth.RAG_SHARED_TOKEN", None)
     @patch("rag_service.auth.id_token")
     async def test_oidc_falls_back_to_sub(self, mock_id_token):
         """If no email claim, falls back to sub claim."""
-        mock_id_token.verify_token.return_value = {"sub": "12345"}
+        mock_id_token.verify_token.return_value = {
+            "sub": "12345",
+            "iss": "https://accounts.google.com",
+        }
         request = _make_request(auth_header="Bearer valid-oidc-token")
         identity = await get_identity(request)
         assert identity.user_id == "12345"
+
+    @patch("rag_service.auth.IS_CLOUD_RUN", False)
+    @patch("rag_service.auth.RAG_SHARED_TOKEN", None)
+    @patch("rag_service.auth.RAG_OIDC_AUDIENCE", "https://rag-service.example.com")
+    @patch("rag_service.auth.id_token")
+    async def test_oidc_audience_passed_to_verifier(self, mock_id_token):
+        mock_id_token.verify_token.return_value = {
+            "sub": "12345",
+            "iss": "https://accounts.google.com",
+        }
+        request = _make_request(auth_header="Bearer valid-oidc-token")
+
+        await get_identity(request)
+
+        _, kwargs = mock_id_token.verify_token.call_args
+        assert kwargs["audience"] == "https://rag-service.example.com"
+
+    @patch("rag_service.auth.IS_CLOUD_RUN", False)
+    @patch("rag_service.auth.RAG_SHARED_TOKEN", None)
+    @patch("rag_service.auth.RAG_TENANT_CLAIM", "tenant")
+    @patch("rag_service.auth.id_token")
+    async def test_tenant_claim_used_when_available(self, mock_id_token):
+        mock_id_token.verify_token.return_value = {
+            "sub": "12345",
+            "tenant": "tenant-from-claim",
+            "iss": "https://accounts.google.com",
+        }
+        request = _make_request(auth_header="Bearer valid-oidc-token")
+
+        identity = await get_identity(request)
+        assert identity.tenant_id == "tenant-from-claim"
 
     async def test_query_param_token_extraction(self):
         """Token can be extracted from query parameter."""

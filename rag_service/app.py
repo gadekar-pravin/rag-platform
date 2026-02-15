@@ -12,29 +12,37 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from rag_service.auth import Identity, get_identity, is_public_path, require_auth_on_cloud_run
-from rag_service.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE
+from rag_service.chunking.chunker import chunk_document
+from rag_service.config import (
+    RAG_CHUNK_OVERLAP,
+    RAG_CHUNK_SIZE,
+    RAG_CORS_ALLOW_CREDENTIALS,
+    RAG_CORS_ALLOW_HEADERS,
+    RAG_CORS_ALLOW_METHODS,
+    RAG_CORS_ALLOW_ORIGINS,
+)
 from rag_service.db import check_db_connection, close_pool, get_pool, rls_connection
 from rag_service.embedding import embed_chunks, embed_query
-from rag_service.chunking.chunker import chunk_document
 from rag_service.models import (
+    ChunkResult,
     DeleteResponse,
     DocumentListResponse,
     DocumentSummary,
     HealthResponse,
     IndexRequest,
     IndexResponse,
+    SearchDebug,
     SearchRequest,
     SearchResponse,
     SearchResult,
-    ChunkResult,
-    SearchDebug,
 )
 from rag_service.stores.rag_document_store import RagDocumentStore
 from rag_service.stores.rag_search_store import RagSearchStore
@@ -62,12 +70,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if RAG_CORS_ALLOW_CREDENTIALS and "*" in RAG_CORS_ALLOW_ORIGINS:
+    raise RuntimeError("Invalid CORS config: wildcard origin cannot be combined with credentials=true")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=RAG_CORS_ALLOW_ORIGINS,
+    allow_credentials=RAG_CORS_ALLOW_CREDENTIALS,
+    allow_methods=RAG_CORS_ALLOW_METHODS,
+    allow_headers=RAG_CORS_ALLOW_HEADERS,
 )
 
 
@@ -97,7 +108,7 @@ def _get_identity(request: Request) -> Identity:
     identity = getattr(request.state, "identity", None)
     if identity is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return identity
+    return cast(Identity, identity)
 
 
 # -- Health -------------------------------------------------------------------
@@ -122,14 +133,18 @@ async def readiness() -> HealthResponse:
 @app.post("/v1/search", response_model=SearchResponse)
 async def search(
     body: SearchRequest,
-    identity: Identity = Depends(_get_identity),
+    identity: Annotated[Identity, Depends(_get_identity)],
 ) -> SearchResponse:
     """Hybrid search: embed query -> RLS-scoped search -> RRF fusion."""
     query_text = body.query.strip()
     if not query_text:
         raise HTTPException(status_code=400, detail="Query must not be blank")
 
-    query_vec = await embed_query(query_text)
+    try:
+        query_vec = await embed_query(query_text)
+    except Exception as e:
+        logger.exception("Failed to generate query embedding")
+        raise HTTPException(status_code=503, detail="Embedding service unavailable") from e
 
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:
         raw = await _search_store.search_hybrid(
@@ -180,9 +195,9 @@ async def search(
 
 @app.get("/v1/documents", response_model=DocumentListResponse)
 async def list_documents(
+    identity: Annotated[Identity, Depends(_get_identity)],
     limit: int = 50,
     offset: int = 0,
-    identity: Identity = Depends(_get_identity),
 ) -> DocumentListResponse:
     """List visible documents (TEAM + owned PRIVATE, enforced by RLS)."""
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:
@@ -210,7 +225,7 @@ async def list_documents(
 @app.delete("/v1/documents/{doc_id}", response_model=DeleteResponse)
 async def delete_document(
     doc_id: str,
-    identity: Identity = Depends(_get_identity),
+    identity: Annotated[Identity, Depends(_get_identity)],
 ) -> DeleteResponse:
     """Soft-delete a document. RLS ensures only visible/owned docs can be deleted."""
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:
@@ -228,7 +243,7 @@ async def delete_document(
 @app.post("/v1/index", response_model=IndexResponse)
 async def index_document(
     body: IndexRequest,
-    identity: Identity = Depends(_get_identity),
+    identity: Annotated[Identity, Depends(_get_identity)],
 ) -> IndexResponse:
     """Index a document: validate -> hash -> dedup -> chunk -> embed -> store."""
     content = body.content.strip()
@@ -249,7 +264,11 @@ async def index_document(
         raise HTTPException(status_code=400, detail="Document produced no chunks")
 
     # Embed all chunks
-    embeddings = await embed_chunks(chunks)
+    try:
+        embeddings = await embed_chunks(chunks)
+    except Exception as e:
+        logger.exception("Failed to generate document embeddings")
+        raise HTTPException(status_code=503, detail="Embedding service unavailable") from e
 
     # Store via RLS-scoped connection
     async with rls_connection(identity.tenant_id, identity.user_id) as conn:

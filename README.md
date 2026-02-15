@@ -91,7 +91,7 @@ curl http://localhost:8000/v1/documents \
 | Service | Purpose | Port | Auth |
 |---|---|---|---|
 | **RAG Service** (`rag_service/`) | Owns the database, embedding pipeline, and search logic | 8000 (dev) / 8080 (prod) | Cloud Run OIDC or shared dev token |
-| **MCP Server** (`rag_mcp/`) | Exposes `search` and `list_documents` tools to VS Code Copilot | 8001 | Passes caller token through to RAG Service |
+| **MCP Server** (`rag_mcp/`) | Exposes `search` and `list_documents` tools to VS Code Copilot | 8001 | Forwards caller bearer token to RAG Service (fallback: `RAG_MCP_TOKEN`) |
 
 ### Database Schema
 
@@ -261,15 +261,24 @@ All configuration is via environment variables (no config files):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TENANT_ID` | `default` | Fixed tenant per environment |
+| `TENANT_ID` | `default` | Fallback tenant when token claim is absent |
+| `RAG_TENANT_CLAIM` | `tenant_id` | Claim name used to resolve tenant from OIDC token |
+| `RAG_REQUIRE_TENANT_CLAIM` | `false` | Fail auth if tenant claim is missing |
 | `RAG_SHARED_TOKEN` | -- | Dev-only auth token (ignored on Cloud Run) |
+| `RAG_OIDC_AUDIENCE` | -- | Required on Cloud Run; expected audience for OIDC tokens |
 | `GEMINI_API_KEY` | -- | Embedding API key (local dev only) |
 | `DATABASE_URL` | -- | Full DB connection string |
 | `RAG_EMBEDDING_MODEL` | `gemini-embedding-001` | Embedding model |
 | `RAG_EMBEDDING_DIM` | `768` | Expected embedding dimension |
+| `RAG_EMBED_MAX_CONCURRENCY` | `8` | Max concurrent embedding calls per request |
+| `RAG_EMBED_MAX_RETRIES` | `2` | Retry attempts for transient embedding failures |
 | `RAG_RRF_K` | `60` | RRF fusion constant |
 | `RAG_SEARCH_EXPANSION` | `3` | Search pool expansion factor |
+| `RAG_SEARCH_PER_DOC_CAP` | `3` | Per-document chunk cap in candidate pools |
+| `RAG_SEARCH_CANDIDATE_MULTIPLIER` | `4` | Candidate oversampling multiplier before doc fusion |
+| `RAG_CORS_ALLOW_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed CORS origins |
 | `RAG_SERVICE_URL` | `http://localhost:8000` | RAG API URL (MCP server config) |
+| `RAG_MCP_FORWARD_CALLER_TOKEN` | `true` | Prefer caller token over static MCP token when available |
 
 See `CLAUDE.md` for the full variable reference.
 

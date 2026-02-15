@@ -5,20 +5,54 @@ Each tool forwards requests to the RAG service HTTP API.
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 import httpx
 
-from rag_mcp.config import RAG_MCP_TOKEN, RAG_SERVICE_URL
+from rag_mcp.config import RAG_MCP_FORWARD_CALLER_TOKEN, RAG_MCP_TOKEN, RAG_SERVICE_URL
+
+logger = logging.getLogger(__name__)
 
 
-def _get_headers() -> dict[str, str]:
+def _get_headers(caller_token: str | None = None) -> dict[str, str]:
     """Build auth headers for the RAG service."""
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    if RAG_MCP_TOKEN:
-        headers["Authorization"] = f"Bearer {RAG_MCP_TOKEN}"
+
+    token = caller_token if (RAG_MCP_FORWARD_CALLER_TOKEN and caller_token) else RAG_MCP_TOKEN
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
-async def rag_search(query: str, limit: int = 10) -> str:
+def extract_bearer_from_context(ctx: Any) -> str | None:
+    """Best-effort extraction of Authorization bearer token from FastMCP context."""
+    if ctx is None:
+        return None
+
+    request_context = getattr(ctx, "request_context", None)
+    request = getattr(request_context, "request", None)
+    headers = getattr(request, "headers", None)
+
+    auth_header = None
+    if headers is not None and (hasattr(headers, "get") or isinstance(headers, dict)):
+        auth_header = headers.get("authorization") or headers.get("Authorization")
+
+    if not auth_header:
+        metadata = getattr(request_context, "meta", None)
+        if isinstance(metadata, dict):
+            auth_header = metadata.get("authorization") or metadata.get("Authorization")
+
+    if not isinstance(auth_header, str):
+        return None
+
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    logger.warning("Authorization header found in MCP context but not in Bearer format")
+    return None
+
+
+async def rag_search(query: str, limit: int = 10, caller_token: str | None = None) -> str:
     """Search the team's document knowledge base.
 
     Args:
@@ -32,7 +66,7 @@ async def rag_search(query: str, limit: int = 10) -> str:
         resp = await client.post(
             f"{RAG_SERVICE_URL}/v1/search",
             json={"query": query, "limit": limit},
-            headers=_get_headers(),
+            headers=_get_headers(caller_token),
         )
 
     if resp.status_code != 200:
@@ -64,7 +98,11 @@ async def rag_search(query: str, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-async def rag_list_documents(limit: int = 20, offset: int = 0) -> str:
+async def rag_list_documents(
+    limit: int = 20,
+    offset: int = 0,
+    caller_token: str | None = None,
+) -> str:
     """List available documents in the knowledge base.
 
     Args:
@@ -78,7 +116,7 @@ async def rag_list_documents(limit: int = 20, offset: int = 0) -> str:
         resp = await client.get(
             f"{RAG_SERVICE_URL}/v1/documents",
             params={"limit": limit, "offset": offset},
-            headers=_get_headers(),
+            headers=_get_headers(caller_token),
         )
 
     if resp.status_code != 200:

@@ -13,12 +13,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Sequence
 from functools import lru_cache
+from typing import cast
 
 import numpy as np
 from google import genai
 
 from rag_service.config import (
+    RAG_EMBED_MAX_CONCURRENCY,
+    RAG_EMBED_MAX_RETRIES,
+    RAG_EMBED_RETRY_BASE_SECONDS,
     RAG_EMBEDDING_DIM,
     RAG_EMBEDDING_MODEL,
     RAG_EMBEDDING_TASK_DOC,
@@ -83,17 +88,48 @@ def get_embedding(text: str, task_type: str = RAG_EMBEDDING_TASK_DOC) -> list[fl
     if norm > 0:
         vec = vec / norm
 
-    return vec.tolist()
+    return cast(list[float], vec.tolist())
 
 
 async def embed_query(query_text: str) -> list[float]:
     """Embed a search query (async wrapper, RETRIEVAL_QUERY task type)."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, get_embedding, query_text, RAG_EMBEDDING_TASK_QUERY)
+    return await _embed_with_retries(query_text, RAG_EMBEDDING_TASK_QUERY)
 
 
 async def embed_chunks(chunks: list[str]) -> list[list[float]]:
-    """Embed multiple document chunks concurrently via thread pool."""
+    """Embed multiple chunks with bounded concurrency and retries."""
+    if not chunks:
+        return []
+
+    concurrency = max(1, RAG_EMBED_MAX_CONCURRENCY)
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _embed_one(text: str) -> list[float]:
+        async with semaphore:
+            return await _embed_with_retries(text, RAG_EMBEDDING_TASK_DOC)
+
+    return list(await asyncio.gather(*(_embed_one(text) for text in chunks)))
+
+
+async def _embed_with_retries(text: str, task_type: str) -> list[float]:
+    """Run blocking embedding call in executor with bounded retries."""
     loop = asyncio.get_running_loop()
-    tasks = [loop.run_in_executor(None, get_embedding, text, RAG_EMBEDDING_TASK_DOC) for text in chunks]
-    return list(await asyncio.gather(*tasks))
+    retries = max(0, RAG_EMBED_MAX_RETRIES)
+
+    for attempt in range(retries + 1):
+        try:
+            result = await loop.run_in_executor(None, get_embedding, text, task_type)
+            return list(cast(Sequence[float], result))
+        except Exception:
+            if attempt >= retries:
+                raise
+            backoff_seconds = RAG_EMBED_RETRY_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "Embedding attempt %d/%d failed; retrying in %.2fs",
+                attempt + 1,
+                retries + 1,
+                backoff_seconds,
+            )
+            await asyncio.sleep(backoff_seconds)
+
+    raise RuntimeError("Unreachable embedding retry path")

@@ -28,6 +28,9 @@ pip install -e ".[mcp]"
 pytest tests/ -v                                  # full suite
 pytest tests/unit/ -v                             # unit tests only (no DB needed)
 pytest tests/integration/ -v                      # integration tests (requires AlloyDB)
+pytest tests/unit/test_auth.py -v                 # single file
+pytest tests/unit/test_auth.py::test_func -v      # single test function
+pytest tests/unit/test_search_store.py::TestClass::test_method -v  # method in class
 
 # Lint and format
 ruff check .                                      # lint
@@ -54,6 +57,13 @@ python scripts/seed-dev-data.py
 docker build -f rag_service/Dockerfile -t rag-service:local .
 docker build -f rag_mcp/Dockerfile -t rag-mcp:local .
 ```
+
+## Testing
+
+- **`asyncio_mode = "auto"`** in pyproject.toml — async test functions work without `@pytest.mark.asyncio`.
+- **Integration tests gracefully skip** when the database is unavailable (`pytest.skip()` on connection failure, not a hard error).
+- **Fixture scoping:** `db_pool` is session-scoped (one pool per test run). `clean_tables` is function-scoped (TRUNCATE CASCADE before each test). `rls_conn` wraps each test in a transaction with `SET LOCAL` so RLS is active.
+- **`DATABASE_TEST_URL`** env var overrides the test DB connection (defaults to `postgresql://apexflow:apexflow@localhost:5432/apexflow`).
 
 ## Architecture
 
@@ -118,6 +128,10 @@ RLS replaces `WHERE user_id =` — no tenant filtering in application SQL.
 
 `rag_service/embedding.py` — Uses `gemini-embedding-001` with `output_dimensionality=768`. Auto-detects environment: Vertex AI with ADC on GCP, or `GEMINI_API_KEY` for local dev.
 
+**Threading:** Synchronous Gemini SDK calls run via `loop.run_in_executor()` to avoid blocking the async event loop. Client is `@lru_cache`d.
+
+**Post-processing:** Embeddings are L2-normalized before storage.
+
 **Dim guard:** Raises `ValueError` if the returned vector dimension doesn't match `RAG_EMBEDDING_DIM`. No zero-vector fallback — fails loudly to prevent corrupted index data.
 
 **Task types:** `RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search.
@@ -130,13 +144,17 @@ RLS replaces `WHERE user_id =` — no tenant filtering in application SQL.
 
 Accepts parameters directly (no `settings.json` dependency). Defaults: 2000 chars chunk size, 200 chars overlap.
 
-### Auth
+### Request Flow: Auth Middleware → Identity
 
 `rag_service/auth.py` — Two modes:
 1. **Cloud Run OIDC:** Verifies Google identity tokens via `google.oauth2.id_token.verify_token()`. Extracts `email` or `sub` claim as `user_id`.
 2. **Shared bearer token:** `RAG_SHARED_TOKEN` env var for local dev. Disabled automatically when `K_SERVICE` is set (Cloud Run safety).
 
+Token is extracted from `Authorization: Bearer <token>` header or `?token=` query param (fallback for SSE clients).
+
 Returns an `Identity` dataclass with `tenant_id` (from `TENANT_ID` env var), `user_id`, and `principal`.
+
+**Middleware flow:** Auth middleware in `app.py` calls `get_identity()`, stores result in `request.state.identity`. Endpoint dependencies use `_get_identity(request)` to retrieve it. Every data endpoint then uses `rls_connection(identity.tenant_id, identity.user_id)` to scope DB access.
 
 Public paths that skip auth: `/liveness`, `/readiness`, `/docs`, `/openapi.json`.
 

@@ -57,25 +57,44 @@ class RagDocumentStore:
 
         row = await conn.fetchrow(
             """
-            INSERT INTO rag_documents
-                (id, tenant_id, visibility, owner_user_id, title, doc_type,
-                 source_uri, metadata, content, content_hash,
-                 embedding_model, embedding_dim, ingestion_version,
-                 chunk_method, total_chunks)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
-                    $11, $12, $13, $14, $15)
-            ON CONFLICT (tenant_id, visibility, content_hash, COALESCE(owner_user_id, ''))
-                WHERE deleted_at IS NULL
-            DO UPDATE SET
-                title = EXCLUDED.title,
-                doc_type = COALESCE(EXCLUDED.doc_type, rag_documents.doc_type),
-                source_uri = COALESCE(EXCLUDED.source_uri, rag_documents.source_uri),
-                metadata = COALESCE(EXCLUDED.metadata, rag_documents.metadata),
-                content = EXCLUDED.content,
-                updated_at = NOW()
-            RETURNING id, (xmax = 0) AS is_new,
-                      ingestion_version, chunk_method,
-                      embedding_model, embedding_dim, total_chunks
+            WITH attempted_insert AS (
+                INSERT INTO rag_documents
+                    (id, tenant_id, visibility, owner_user_id, title, doc_type,
+                     source_uri, metadata, content, content_hash,
+                     embedding_model, embedding_dim, ingestion_version,
+                     chunk_method, total_chunks)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
+                        $11, $12, $13, $14, $15)
+                ON CONFLICT (tenant_id, visibility, content_hash, COALESCE(owner_user_id, ''))
+                    WHERE deleted_at IS NULL
+                DO NOTHING
+                RETURNING
+                    id,
+                    TRUE AS is_new,
+                    ingestion_version,
+                    chunk_method,
+                    embedding_model,
+                    embedding_dim,
+                    total_chunks
+            )
+            SELECT id, is_new, ingestion_version, chunk_method, embedding_model, embedding_dim, total_chunks
+            FROM attempted_insert
+            UNION ALL
+            SELECT
+                d.id,
+                FALSE AS is_new,
+                d.ingestion_version,
+                d.chunk_method,
+                d.embedding_model,
+                d.embedding_dim,
+                d.total_chunks
+            FROM rag_documents d
+            WHERE d.tenant_id = $2
+              AND d.visibility = $3
+              AND d.content_hash = $10
+              AND COALESCE(d.owner_user_id, '') = COALESCE($4, '')
+              AND d.deleted_at IS NULL
+            LIMIT 1
             """,
             doc_id,
             tenant_id,
@@ -93,22 +112,24 @@ class RagDocumentStore:
             chunk_method,
             len(chunks),
         )
+        if row is None:
+            raise RuntimeError("Failed to insert or resolve deduplicated document row")
 
-        actual_id: str = str(row["id"])  # type: ignore[index]
-        is_new: bool = row["is_new"]  # type: ignore[index]
+        actual_id: str = str(row["id"])
+        is_new: bool = bool(row["is_new"])
 
         if not is_new:
             # Check if settings match — skip re-chunking if identical
             if (
-                row["ingestion_version"] == RAG_INGESTION_VERSION  # type: ignore[index]
-                and row["chunk_method"] == chunk_method  # type: ignore[index]
-                and row["embedding_model"] == RAG_EMBEDDING_MODEL  # type: ignore[index]
-                and row["embedding_dim"] == RAG_EMBEDDING_DIM  # type: ignore[index]
+                row["ingestion_version"] == RAG_INGESTION_VERSION
+                and row["chunk_method"] == chunk_method
+                and row["embedding_model"] == RAG_EMBEDDING_MODEL
+                and row["embedding_dim"] == RAG_EMBEDDING_DIM
             ):
                 return {
                     "document_id": actual_id,
                     "status": "deduplicated",
-                    "total_chunks": row["total_chunks"],  # type: ignore[index]
+                    "total_chunks": row["total_chunks"],
                 }
 
             # Settings changed — delete stale chunks (cascades to embeddings)
@@ -195,7 +216,7 @@ class RagDocumentStore:
         RLS ensures only visible docs can be updated. For PRIVATE docs,
         only the owner can delete.
         """
-        tag = await conn.execute(
+        tag_raw = await conn.execute(
             """
             UPDATE rag_documents
             SET deleted_at = NOW(), updated_at = NOW()
@@ -203,6 +224,7 @@ class RagDocumentStore:
             """,
             uuid.UUID(doc_id),
         )
+        tag = str(tag_raw)
         return tag == "UPDATE 1"
 
     async def _store_chunks_and_embeddings(

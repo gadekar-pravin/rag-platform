@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -101,20 +101,20 @@ class TestSearchHybrid:
         # Verify the LIMIT parameter was passed
         call_args = mock_conn.fetch.call_args
         # $5 = doc_limit
-        assert call_args[0][-1] == 3
+        assert call_args[0][-2] == 3
 
     async def test_expansion_factor(self, store, mock_conn, sample_query_vec):
-        """chunk_limit = doc_limit * expansion + 1."""
+        """candidate_limit = doc_limit * expansion * multiplier + 1."""
         mock_conn.fetch.return_value = []
 
         await store.search_hybrid(
             mock_conn, "test", sample_query_vec,
-            doc_limit=5, expansion=3
+            doc_limit=5, expansion=3, candidate_multiplier=1
         )
 
         call_args = mock_conn.fetch.call_args
-        # $2 = chunk_limit + 1
-        assert call_args[0][1] == 16  # 5 * 3 + 1
+        # $2 = candidate_limit + 1
+        assert call_args[0][2] == 16  # 5 * 3 + 1
 
 
 class TestRRFScoring:

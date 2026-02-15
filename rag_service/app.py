@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,7 +24,12 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from rag_service.auth import Identity, get_identity, is_public_path, require_auth_on_cloud_run
+from rag_service.auth import (
+    Identity,
+    get_identity,
+    is_public_path,
+    require_auth_on_cloud_run,
+)
 from rag_service.chunking.chunker import chunk_document
 from rag_service.config import (
     RAG_CHUNK_OVERLAP,
@@ -234,6 +240,8 @@ async def search(
             text_pool_size=d["text_pool_size"],
             vector_has_more=d["vector_has_more"],
             text_has_more=d["text_has_more"],
+            vector_cutoff_score=d.get("vector_cutoff_score"),
+            text_cutoff_score=d.get("text_cutoff_score"),
         )
 
     return SearchResponse(results=results, debug=debug)
@@ -305,6 +313,22 @@ async def index_document(
 
     # Determine owner_user_id based on visibility
     owner_user_id = identity.user_id if body.visibility == "PRIVATE" else None
+
+    # Pre-check for duplicates before expensive chunking/embedding
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
+    async with rls_connection(identity.tenant_id, identity.user_id) as conn:
+        dedup = await _doc_store.check_dedup(
+            conn,
+            content_hash=content_hash,
+            visibility=body.visibility,
+            owner_user_id=owner_user_id,
+        )
+    if dedup is not None:
+        return IndexResponse(
+            document_id=dedup["document_id"],
+            status="deduplicated",
+            total_chunks=dedup["total_chunks"],
+        )
 
     # Chunk the document
     chunks = await chunk_document(

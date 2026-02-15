@@ -5,11 +5,11 @@ from __future__ import annotations
 import base64
 import json
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rag_mcp.oidc import _decode_jwt_exp, clear_cache, get_service_token
+from rag_mcp.oidc import _decode_jwt_exp, _mint_token, clear_cache, get_service_token
 
 
 def _make_jwt(exp: float, sub: str = "sa@project.iam") -> str:
@@ -117,3 +117,23 @@ class TestGetServiceToken:
     def test_returns_none_on_first_mint_failure(self, mock_mint):
         mock_mint.side_effect = RuntimeError("no metadata server")
         assert get_service_token("https://rag.example.com") is None
+
+
+class TestUrllibParseImport:
+    """Verify that urllib.parse is explicitly imported (Fix 1)."""
+
+    @patch("rag_mcp.oidc.urllib.request.urlopen")
+    def test_mint_token_encodes_audience(self, mock_urlopen):
+        """_mint_token URL-encodes the audience parameter."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _make_jwt(time.time() + 3600).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        _mint_token("https://rag.example.com/path?q=1")
+
+        # Verify the URL was constructed with encoded audience
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]
+        assert "https%3A%2F%2Frag.example.com" in req.full_url

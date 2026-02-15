@@ -90,7 +90,12 @@ async def _request_with_retry(
         except (httpx.ConnectError, httpx.ReadTimeout) as e:
             if attempt >= _MAX_RETRIES:
                 raise
-            logger.warning("HTTP request failed (attempt %d/%d): %s", attempt + 1, _MAX_RETRIES + 1, e)
+            logger.warning(
+                "HTTP request failed (attempt %d/%d): %s",
+                attempt + 1,
+                _MAX_RETRIES + 1,
+                e,
+            )
         await asyncio.sleep(_RETRY_BACKOFF_BASE * (2**attempt))
     raise RuntimeError("Unreachable retry path")
 

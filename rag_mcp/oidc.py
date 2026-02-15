@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -25,8 +26,7 @@ logger = logging.getLogger(__name__)
 _ON_CLOUD_RUN = bool(os.getenv("K_SERVICE"))
 
 _METADATA_URL = (
-    "http://metadata.google.internal/computeMetadata/v1"
-    "/instance/service-accounts/default/identity?audience={audience}"
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={audience}"
 )
 _METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 

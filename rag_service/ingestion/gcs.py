@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import io
-from datetime import datetime
-from typing import Iterable
+from collections.abc import Iterable
+from typing import cast
 
-from google.cloud import storage
+from google.cloud.storage import Blob, Client
 
 
 def gs_uri(bucket: str, name: str) -> str:
     return f"gs://{bucket}/{name}"
 
 
-def list_tenant_prefixes(client: storage.Client, bucket: str) -> list[str]:
+def list_tenant_prefixes(client: Client, bucket: str) -> list[str]:
     """
     Returns top-level prefixes as tenant IDs by listing with delimiter='/'
     """
@@ -30,18 +29,25 @@ def list_tenant_prefixes(client: storage.Client, bucket: str) -> list[str]:
     return out
 
 
-def list_objects(client: storage.Client, bucket: str, prefix: str) -> Iterable[storage.Blob]:
+def list_objects(client: Client, bucket: str, prefix: str) -> Iterable[Blob]:
     b = client.bucket(bucket)
-    return client.list_blobs(b, prefix=prefix)
+    return cast(Iterable[Blob], client.list_blobs(b, prefix=prefix))
 
 
-def download_bytes(client: storage.Client, bucket: str, name: str) -> bytes:
+def download_bytes(client: Client, bucket: str, name: str) -> bytes:
     b = client.bucket(bucket)
     blob = b.blob(name)
-    return blob.download_as_bytes()
+    return cast(bytes, blob.download_as_bytes())
 
 
-def upload_text(client: storage.Client, bucket: str, name: str, text: str, *, content_type: str = "text/plain") -> None:
+def upload_text(
+    client: Client,
+    bucket: str,
+    name: str,
+    text: str,
+    *,
+    content_type: str = "text/plain",
+) -> None:
     b = client.bucket(bucket)
     blob = b.blob(name)
     blob.upload_from_string(text, content_type=content_type)

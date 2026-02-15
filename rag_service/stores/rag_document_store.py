@@ -45,6 +45,68 @@ class RagDocumentStore:
         )
         return dict(row) if row else None
 
+    async def check_dedup(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        content_hash: str,
+        visibility: str,
+        owner_user_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Check if an identical document already exists (same content + settings).
+
+        Returns ``{document_id, total_chunks}`` when a match is found, or
+        ``None`` if no duplicate exists.  Used by ``/v1/index`` to skip
+        expensive chunking/embedding when the content is already indexed.
+        """
+        if visibility == "TEAM":
+            row = await conn.fetchrow(
+                """
+                SELECT id, total_chunks,
+                       ingestion_version, chunk_method, embedding_model, embedding_dim
+                FROM rag_documents
+                WHERE visibility = 'TEAM'
+                  AND source_uri IS NULL
+                  AND content_hash = $1
+                  AND deleted_at IS NULL
+                """,
+                content_hash,
+            )
+        else:
+            if not owner_user_id:
+                return None
+            row = await conn.fetchrow(
+                """
+                SELECT id, total_chunks,
+                       ingestion_version, chunk_method, embedding_model, embedding_dim
+                FROM rag_documents
+                WHERE visibility = 'PRIVATE'
+                  AND owner_user_id = $1
+                  AND content_hash = $2
+                  AND deleted_at IS NULL
+                """,
+                owner_user_id,
+                content_hash,
+            )
+
+        if row is None:
+            return None
+
+        # Only consider it a true duplicate if ingestion settings also match
+        settings_match = (
+            row["ingestion_version"] == RAG_INGESTION_VERSION
+            and row["chunk_method"] == "rule_based"
+            and row["embedding_model"] == RAG_EMBEDDING_MODEL
+            and row["embedding_dim"] == RAG_EMBEDDING_DIM
+        )
+        if not settings_match:
+            return None
+
+        return {
+            "document_id": str(row["id"]),
+            "total_chunks": int(row["total_chunks"] or 0),
+        }
+
     async def upsert_document_by_source_uri(
         self,
         conn: asyncpg.Connection,
@@ -99,18 +161,20 @@ class RagDocumentStore:
                     and existing["embedding_model"] == RAG_EMBEDDING_MODEL
                     and existing["embedding_dim"] == RAG_EMBEDDING_DIM
                 )
-                if settings_match and existing["content_hash"] == content_hash and (
-                    (source_hash is None) or (existing["source_hash"] == source_hash)
+                if (
+                    settings_match
+                    and existing["content_hash"] == content_hash
+                    and ((source_hash is None) or (existing["source_hash"] == source_hash))
                 ):
                     # Still refresh metadata/title/source_hash cheaply
+                    # Skip content write — content_hash confirms it's identical
                     await conn.execute(
                         """
                         UPDATE rag_documents
                         SET title = $2,
                             doc_type = $3,
                             metadata = $4::jsonb,
-                            content = $5,
-                            source_hash = $6,
+                            source_hash = $5,
                             updated_at = NOW()
                         WHERE id = $1
                         """,
@@ -118,7 +182,6 @@ class RagDocumentStore:
                         title,
                         doc_type,
                         meta_json,
-                        content,
                         source_hash,
                     )
                     return {
@@ -162,20 +225,20 @@ class RagDocumentStore:
                     updated_at = NOW()
                 RETURNING id
                 """,
-                uuid.uuid4(),          # $1
-                tenant_id,             # $2
-                title,                # $3
-                doc_type,             # $4
-                source_uri,           # $5
-                meta_json,            # $6
-                content,              # $7
-                source_hash,          # $8
-                content_hash,         # $9
+                uuid.uuid4(),  # $1
+                tenant_id,  # $2
+                title,  # $3
+                doc_type,  # $4
+                source_uri,  # $5
+                meta_json,  # $6
+                content,  # $7
+                source_hash,  # $8
+                content_hash,  # $9
                 RAG_EMBEDDING_MODEL,  # $10
-                RAG_EMBEDDING_DIM,    # $11
+                RAG_EMBEDDING_DIM,  # $11
                 RAG_INGESTION_VERSION,  # $12
-                chunk_method,         # $13
-                len(chunks),          # $14
+                chunk_method,  # $13
+                len(chunks),  # $14
             )
             if row is None:
                 raise RuntimeError("Failed to upsert TEAM document by source_uri")
@@ -185,7 +248,11 @@ class RagDocumentStore:
             # Replace chunks + embeddings atomically
             await conn.execute("DELETE FROM rag_document_chunks WHERE document_id = $1", doc_id)
             await self._store_chunks_and_embeddings(
-                conn, uuid.UUID(str(doc_id)), chunks, embeddings, chunk_offsets=chunk_offsets
+                conn,
+                uuid.UUID(str(doc_id)),
+                chunks,
+                embeddings,
+                chunk_offsets=chunk_offsets,
             )
 
             await conn.execute(
@@ -199,7 +266,11 @@ class RagDocumentStore:
                 len(chunks),
             )
 
-        return {"document_id": str(doc_id), "status": "indexed", "total_chunks": len(chunks)}
+        return {
+            "document_id": str(doc_id),
+            "status": "indexed",
+            "total_chunks": len(chunks),
+        }
 
     async def upsert_document(
         self,
@@ -318,22 +389,22 @@ class RagDocumentStore:
                 WHERE {resolve_where}
                 LIMIT 1
                 """,
-                doc_id,                 # $1
-                tenant_id,              # $2
-                visibility,             # $3
-                owner_user_id,          # $4
-                title,                  # $5
-                doc_type,               # $6
-                None,                   # $7 (unused)
-                meta_json,              # $8
-                content,                # $9
-                content_hash,           # $10
-                RAG_EMBEDDING_MODEL,    # $11
-                RAG_EMBEDDING_DIM,      # $12
+                doc_id,  # $1
+                tenant_id,  # $2
+                visibility,  # $3
+                owner_user_id,  # $4
+                title,  # $5
+                doc_type,  # $6
+                None,  # $7 (unused)
+                meta_json,  # $8
+                content,  # $9
+                content_hash,  # $10
+                RAG_EMBEDDING_MODEL,  # $11
+                RAG_EMBEDDING_DIM,  # $12
                 RAG_INGESTION_VERSION,  # $13
-                chunk_method,           # $14
-                len(chunks),            # $15
-                source_hash,            # $16
+                chunk_method,  # $14
+                len(chunks),  # $15
+                source_hash,  # $16
             )
             if row is None:
                 raise RuntimeError("Failed to insert or resolve deduplicated document row")
@@ -463,7 +534,7 @@ class RagDocumentStore:
         for idx, (text, emb) in enumerate(zip(chunks, embeddings, strict=True)):
             chunk_id = uuid.uuid4()
             emb_id = uuid.uuid4()
-            start, end = (chunk_offsets[idx] if chunk_offsets else (None, None))
+            start, end = chunk_offsets[idx] if chunk_offsets else (None, None)
             chunk_rows.append((chunk_id, doc_id, idx, text, start, end))
             embedding_rows.append((emb_id, chunk_id, emb))
 

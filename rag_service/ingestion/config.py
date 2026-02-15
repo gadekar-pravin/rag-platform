@@ -48,7 +48,7 @@ class IngestConfig:
     max_retries_per_file: int
 
     @classmethod
-    def from_env(cls) -> "IngestConfig":
+    def from_env(cls) -> IngestConfig:
         input_bucket = os.getenv("RAG_INGEST_INPUT_BUCKET")
         if not input_bucket:
             raise ValueError("RAG_INGEST_INPUT_BUCKET is required")

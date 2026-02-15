@@ -21,7 +21,8 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # -- rag_documents --------------------------------------------------------
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE rag_documents (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -57,44 +58,54 @@ def upgrade() -> None:
                 OR (visibility = 'PRIVATE' AND owner_user_id IS NOT NULL)
             )
         )
-    """)
+    """
+    )
 
     # -- Dedup indexes (3 partial unique indexes) -----------------------------
 
     # TEAM docs with source_uri: one canonical doc per (tenant, source_uri)
-    op.execute("""
+    op.execute(
+        """
         CREATE UNIQUE INDEX ux_rag_docs_team_source_uri
         ON rag_documents (tenant_id, source_uri)
         WHERE deleted_at IS NULL
           AND visibility = 'TEAM'
           AND source_uri IS NOT NULL
-    """)
+    """
+    )
 
     # TEAM ad-hoc docs (no source_uri): dedup by content_hash
-    op.execute("""
+    op.execute(
+        """
         CREATE UNIQUE INDEX ux_rag_docs_team_dedup_adhoc
         ON rag_documents (tenant_id, content_hash)
         WHERE deleted_at IS NULL
           AND visibility = 'TEAM'
           AND source_uri IS NULL
-    """)
+    """
+    )
 
     # PRIVATE docs: dedup by (tenant, owner, content_hash)
-    op.execute("""
+    op.execute(
+        """
         CREATE UNIQUE INDEX ux_rag_docs_private_dedup
         ON rag_documents (tenant_id, owner_user_id, content_hash)
         WHERE deleted_at IS NULL
           AND visibility = 'PRIVATE'
-    """)
+    """
+    )
 
     # Filter index for common queries
-    op.execute("""
+    op.execute(
+        """
         CREATE INDEX ix_rag_docs_filter
         ON rag_documents (tenant_id, visibility, owner_user_id, deleted_at)
-    """)
+    """
+    )
 
     # -- rag_document_chunks --------------------------------------------------
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE rag_document_chunks (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             document_id UUID NOT NULL
@@ -110,35 +121,45 @@ def upgrade() -> None:
 
             UNIQUE (document_id, chunk_index)
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE INDEX ix_rag_chunks_doc
         ON rag_document_chunks (document_id)
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE INDEX ix_rag_chunks_fts
         ON rag_document_chunks USING GIN (fts)
-    """)
+    """
+    )
 
     # -- rag_chunk_embeddings -------------------------------------------------
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE rag_chunk_embeddings (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             chunk_id UUID NOT NULL
                 REFERENCES rag_document_chunks(id) ON DELETE CASCADE,
             embedding VECTOR(768) NOT NULL
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE INDEX ix_rag_emb_chunk
         ON rag_chunk_embeddings (chunk_id)
-    """)
+    """
+    )
 
     # -- rag_ingestion_runs (tracking, populated later) -----------------------
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE rag_ingestion_runs (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -151,10 +172,12 @@ def upgrade() -> None:
             error_message TEXT,
             metadata JSONB DEFAULT '{}'
         )
-    """)
+    """
+    )
 
     # -- rag_ingestion_items (tracking, populated later) ----------------------
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE rag_ingestion_items (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             run_id UUID NOT NULL
@@ -167,7 +190,8 @@ def upgrade() -> None:
             started_at TIMESTAMPTZ,
             completed_at TIMESTAMPTZ
         )
-    """)
+    """
+    )
 
     # -- Row-Level Security: rag_documents ------------------------------------
 
@@ -175,7 +199,8 @@ def upgrade() -> None:
     op.execute("ALTER TABLE rag_documents FORCE ROW LEVEL SECURITY")
 
     # SELECT: tenant match + (TEAM visible to all, PRIVATE only to owner) + not deleted
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_documents_select ON rag_documents
         FOR SELECT
         USING (
@@ -187,10 +212,12 @@ def upgrade() -> None:
                     AND owner_user_id = current_setting('app.user_id', true))
             )
         )
-    """)
+    """
+    )
 
     # INSERT: tenant match + visibility/owner consistency
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_documents_insert ON rag_documents
         FOR INSERT
         WITH CHECK (
@@ -201,10 +228,12 @@ def upgrade() -> None:
                     AND owner_user_id = current_setting('app.user_id', true))
             )
         )
-    """)
+    """
+    )
 
     # UPDATE: same as SELECT for USING, same as INSERT for WITH CHECK
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_documents_update ON rag_documents
         FOR UPDATE
         USING (
@@ -224,10 +253,12 @@ def upgrade() -> None:
                     AND owner_user_id = current_setting('app.user_id', true))
             )
         )
-    """)
+    """
+    )
 
     # DELETE: same as SELECT
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_documents_delete ON rag_documents
         FOR DELETE
         USING (
@@ -239,14 +270,16 @@ def upgrade() -> None:
                     AND owner_user_id = current_setting('app.user_id', true))
             )
         )
-    """)
+    """
+    )
 
     # -- Row-Level Security: rag_document_chunks ------------------------------
 
     op.execute("ALTER TABLE rag_document_chunks ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE rag_document_chunks FORCE ROW LEVEL SECURITY")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_chunks_select ON rag_document_chunks
         FOR SELECT
         USING (
@@ -265,9 +298,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_chunks_insert ON rag_document_chunks
         FOR INSERT
         WITH CHECK (
@@ -286,9 +321,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_chunks_update ON rag_document_chunks
         FOR UPDATE
         USING (
@@ -323,9 +360,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_chunks_delete ON rag_document_chunks
         FOR DELETE
         USING (
@@ -344,14 +383,16 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
     # -- Row-Level Security: rag_chunk_embeddings -----------------------------
 
     op.execute("ALTER TABLE rag_chunk_embeddings ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE rag_chunk_embeddings FORCE ROW LEVEL SECURITY")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_embeddings_select ON rag_chunk_embeddings
         FOR SELECT
         USING (
@@ -371,9 +412,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_embeddings_insert ON rag_chunk_embeddings
         FOR INSERT
         WITH CHECK (
@@ -393,9 +436,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_embeddings_update ON rag_chunk_embeddings
         FOR UPDATE
         USING (
@@ -432,9 +477,11 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_embeddings_delete ON rag_chunk_embeddings
         FOR DELETE
         USING (
@@ -454,30 +501,36 @@ def upgrade() -> None:
                   )
             )
         )
-    """)
+    """
+    )
 
     # -- Row-Level Security: rag_ingestion_runs -------------------------------
 
     op.execute("ALTER TABLE rag_ingestion_runs ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE rag_ingestion_runs FORCE ROW LEVEL SECURITY")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_runs_select ON rag_ingestion_runs
         FOR SELECT
         USING (
             tenant_id = current_setting('app.tenant_id', true)
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_runs_insert ON rag_ingestion_runs
         FOR INSERT
         WITH CHECK (
             tenant_id = current_setting('app.tenant_id', true)
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_runs_update ON rag_ingestion_runs
         FOR UPDATE
         USING (
@@ -486,22 +539,26 @@ def upgrade() -> None:
         WITH CHECK (
             tenant_id = current_setting('app.tenant_id', true)
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_runs_delete ON rag_ingestion_runs
         FOR DELETE
         USING (
             tenant_id = current_setting('app.tenant_id', true)
         )
-    """)
+    """
+    )
 
     # -- Row-Level Security: rag_ingestion_items ------------------------------
 
     op.execute("ALTER TABLE rag_ingestion_items ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE rag_ingestion_items FORCE ROW LEVEL SECURITY")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_items_select ON rag_ingestion_items
         FOR SELECT
         USING (
@@ -512,9 +569,11 @@ def upgrade() -> None:
                   AND r.tenant_id = current_setting('app.tenant_id', true)
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_items_insert ON rag_ingestion_items
         FOR INSERT
         WITH CHECK (
@@ -525,9 +584,11 @@ def upgrade() -> None:
                   AND r.tenant_id = current_setting('app.tenant_id', true)
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_items_update ON rag_ingestion_items
         FOR UPDATE
         USING (
@@ -546,9 +607,11 @@ def upgrade() -> None:
                   AND r.tenant_id = current_setting('app.tenant_id', true)
             )
         )
-    """)
+    """
+    )
 
-    op.execute("""
+    op.execute(
+        """
         CREATE POLICY rag_ingestion_items_delete ON rag_ingestion_items
         FOR DELETE
         USING (
@@ -559,7 +622,8 @@ def upgrade() -> None:
                   AND r.tenant_id = current_setting('app.tenant_id', true)
             )
         )
-    """)
+    """
+    )
 
 
 def downgrade() -> None:

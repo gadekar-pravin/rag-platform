@@ -50,7 +50,8 @@ async def clean_tables(db_pool):
     """Truncate all rag_* tables before each test."""
     async with db_pool.acquire() as conn:
         # Disable RLS temporarily for cleanup (requires superuser or table owner)
-        await conn.execute("""
+        await conn.execute(
+            """
             TRUNCATE
                 rag_ingestion_items,
                 rag_ingestion_runs,
@@ -58,25 +59,24 @@ async def clean_tables(db_pool):
                 rag_document_chunks,
                 rag_documents
             CASCADE
-        """)
+        """
+        )
     yield
 
 
 @pytest_asyncio.fixture
 async def rls_conn(db_pool, test_tenant_id, test_user_id):
     """Provide a connection with RLS session variables set."""
-    async with db_pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", test_tenant_id)
-            await conn.execute("SET LOCAL app.user_id = $1", test_user_id)
-            yield conn
+    async with db_pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.tenant_id', $1, true)", test_tenant_id)
+        await conn.execute("SELECT set_config('app.user_id', $1, true)", test_user_id)
+        yield conn
 
 
 @pytest_asyncio.fixture
 async def other_rls_conn(db_pool, other_tenant_id, other_user_id):
     """Provide a connection with different tenant RLS session variables."""
-    async with db_pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL app.tenant_id = $1", other_tenant_id)
-            await conn.execute("SET LOCAL app.user_id = $1", other_user_id)
-            yield conn
+    async with db_pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.tenant_id', $1, true)", other_tenant_id)
+        await conn.execute("SELECT set_config('app.user_id', $1, true)", other_user_id)
+        yield conn

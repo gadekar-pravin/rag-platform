@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, cast
 
 from google.cloud import documentai_v1 as documentai
-from google.cloud import storage
+from google.cloud.storage import Client
+
+
+class _DoneOperation(Protocol):
+    def done(self) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -27,7 +31,7 @@ class DocumentAIClient:
     - Batch OCR for PDFs (GCS in → GCS out)
     """
 
-    def __init__(self, *, cfg: DocAIConfig, storage_client: storage.Client) -> None:
+    def __init__(self, *, cfg: DocAIConfig, storage_client: Client) -> None:
         self._cfg = cfg
         self._doc_client = documentai.DocumentProcessorServiceClient()
         self._storage = storage_client
@@ -60,9 +64,7 @@ class DocumentAIClient:
             output_gcs_prefix += "/"
 
         gcs_doc = documentai.GcsDocument(gcs_uri=input_gcs_uri, mime_type="application/pdf")
-        input_docs = documentai.BatchDocumentsInputConfig(
-            gcs_documents=documentai.GcsDocuments(documents=[gcs_doc])
-        )
+        input_docs = documentai.BatchDocumentsInputConfig(gcs_documents=documentai.GcsDocuments(documents=[gcs_doc]))
         output_cfg = documentai.DocumentOutputConfig(
             gcs_output_config=documentai.DocumentOutputConfig.GcsOutputConfig(gcs_uri=output_gcs_prefix)
         )
@@ -72,7 +74,7 @@ class DocumentAIClient:
             input_documents=input_docs,
             document_output_config=output_cfg,
         )
-        op = self._doc_client.batch_process_documents(request=req)
+        op = cast(_DoneOperation, self._doc_client.batch_process_documents(request=req))
 
         start = time.time()
         while not op.done():

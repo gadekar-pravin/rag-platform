@@ -13,7 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class PdfExtractor(Extractor):
-    def __init__(self, *, docai: DocumentAIClient, text_per_page_min: int, output_prefix_for_docai: str) -> None:
+    def __init__(
+        self,
+        *,
+        docai: DocumentAIClient | None = None,
+        text_per_page_min: int,
+        output_prefix_for_docai: str | None,
+    ) -> None:
         self._docai = docai
         self._min = max(1, int(text_per_page_min))
         self._docai_output_prefix = output_prefix_for_docai  # gs://bucket/prefix/... per item
@@ -45,6 +51,22 @@ class PdfExtractor(Extractor):
 
         # OCR if low quality or empty
         if not extracted_norm or tpp < self._min:
+            if self._docai is None:
+                if not extracted_norm:
+                    raise RuntimeError(f"PDF text extraction failed and OCR is disabled: {item.name}")
+                logger.warning(
+                    "Low text quality (tpp=%d) but OCR disabled; using PyPDF text as-is: %s",
+                    tpp,
+                    item.name,
+                )
+                return ExtractResult(
+                    text=extracted_norm,
+                    used_ocr=False,
+                    pages=pages,
+                    extraction_meta={"strategy": "pypdf", "text_per_page": tpp, "ocr_skipped": True},
+                )
+            if self._docai_output_prefix is None:
+                raise ValueError("RAG_INGEST_OUTPUT_BUCKET is required for PDF batch OCR")
             # Batch OCR expects GCS input; ingestion passes source_uri as GCS.
             # We do not upload bytes; we call DocAI batch on the original GCS object.
             text, meta = self._docai.ocr_pdf_batch(
@@ -56,7 +78,11 @@ class PdfExtractor(Extractor):
                 text=text,
                 used_ocr=True,
                 pages=pages,
-                extraction_meta={"strategy": "docai_batch", "text_per_page": tpp, **meta},
+                extraction_meta={
+                    "strategy": "docai_batch",
+                    "text_per_page": tpp,
+                    **meta,
+                },
             )
 
         return ExtractResult(

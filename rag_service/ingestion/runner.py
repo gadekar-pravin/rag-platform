@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import UTC, datetime
 
-from google.cloud import storage
+from google.cloud.storage import Client
 
 from rag_service.chunking.chunker import chunk_document_with_spans
 from rag_service.db import rls_connection
@@ -30,7 +30,7 @@ def _now() -> datetime:
 
 
 class IngestionRunner:
-    def __init__(self, *, cfg: IngestConfig, storage_client: storage.Client) -> None:
+    def __init__(self, *, cfg: IngestConfig, storage_client: Client) -> None:
         self._cfg = cfg
         self._gcs = storage_client
         self._store = RagDocumentStore()
@@ -149,7 +149,12 @@ class IngestionRunner:
                 completed + skipped + failed,
             )
 
-        return {"total": len(items), "completed": completed, "skipped": skipped, "failed": failed}
+        return {
+            "total": len(items),
+            "completed": completed,
+            "skipped": skipped,
+            "failed": failed,
+        }
 
     async def _process_item(
         self,
@@ -175,14 +180,31 @@ class IngestionRunner:
                 )
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
-                logger.warning("Item failed (attempt %d/%d): %s :: %s", attempt + 1, self._cfg.max_retries_per_file + 1, item.source_uri, last_err)
+                logger.warning(
+                    "Item failed (attempt %d/%d): %s :: %s",
+                    attempt + 1,
+                    self._cfg.max_retries_per_file + 1,
+                    item.source_uri,
+                    last_err,
+                )
                 if attempt >= self._cfg.max_retries_per_file:
                     break
-                await asyncio.sleep(min(2 ** attempt, 10))
+                await asyncio.sleep(min(2**attempt, 10))
 
         # Permanent failure: mark DB status
-        await self._mark_item_failed(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri, user_id=user_id, error=last_err or "unknown error")
-        return ProcessResult(item=item, status="failed", document_id=None, error_message=last_err or "unknown error")
+        await self._mark_item_failed(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            source_uri=item.source_uri,
+            user_id=user_id,
+            error=last_err or "unknown error",
+        )
+        return ProcessResult(
+            item=item,
+            status="failed",
+            document_id=None,
+            error_message=last_err or "unknown error",
+        )
 
     async def _process_item_once(
         self,
@@ -195,7 +217,12 @@ class IngestionRunner:
         user_id: str,
     ) -> ProcessResult:
         # Mark processing
-        await self._mark_item_processing(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri, user_id=user_id)
+        await self._mark_item_processing(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            source_uri=item.source_uri,
+            user_id=user_id,
+        )
 
         # Compute source_hash
         src_hash = compute_source_hash(
@@ -212,12 +239,21 @@ class IngestionRunner:
                 existing = await self._store.get_team_document_by_source_uri(conn, source_uri=item.source_uri)
                 if existing and (existing.get("source_hash") == src_hash):
                     await self._mark_item_skipped(
-                        tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri, user_id=user_id, document_id=str(existing["id"])
+                        tenant_id=tenant_id,
+                        run_id=run_id,
+                        source_uri=item.source_uri,
+                        user_id=user_id,
+                        document_id=str(existing["id"]),
                     )
-                    return ProcessResult(item=item, status="skipped", document_id=str(existing["id"]), error_message=None)
+                    return ProcessResult(
+                        item=item,
+                        status="skipped",
+                        document_id=str(existing["id"]),
+                        error_message=None,
+                    )
 
-        # Download bytes
-        data = download_bytes(self._gcs, item.bucket, item.name)
+        # Download bytes (blocking I/O → run in thread to not block event loop)
+        data = await asyncio.to_thread(download_bytes, self._gcs, item.bucket, item.name)
 
         # Build extractors for this run
         if self._cfg.ocr_enabled and self._docai is None:
@@ -232,11 +268,22 @@ class IngestionRunner:
         if self._cfg.ocr_enabled:
             # DocAI output prefix per item if batch OCR used
             docai_out = self._docai_output_prefix(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri)
-            extractors.extend(
-                [
-                    ImageExtractor(docai=self._docai),
-                    PdfExtractor(docai=self._docai, text_per_page_min=self._cfg.pdf_text_per_page_min, output_prefix_for_docai=docai_out),
-                ]
+            extractors.append(ImageExtractor(docai=self._docai))
+            extractors.append(
+                PdfExtractor(
+                    docai=self._docai,
+                    text_per_page_min=self._cfg.pdf_text_per_page_min,
+                    output_prefix_for_docai=docai_out,
+                )
+            )
+        else:
+            # PDF text extraction without OCR fallback
+            extractors.append(
+                PdfExtractor(
+                    docai=None,
+                    text_per_page_min=self._cfg.pdf_text_per_page_min,
+                    output_prefix_for_docai=None,
+                )
             )
 
         # Choose extractor
@@ -244,7 +291,7 @@ class IngestionRunner:
         if extractor is None:
             raise RuntimeError(f"Unsupported file type for: {item.name}")
 
-        exr = extractor.extract(item=item, data=data)
+        exr = await asyncio.to_thread(extractor.extract, item=item, data=data)
         text = exr.text
         if not text:
             raise RuntimeError("Extraction produced empty text")
@@ -253,7 +300,7 @@ class IngestionRunner:
         extracted_text_uri = None
         if self._cfg.output_bucket:
             key = self._extracted_key(tenant_id=tenant_id, run_id=run_id, source_hash=src_hash)
-            upload_text(self._gcs, self._cfg.output_bucket, key, text)
+            await asyncio.to_thread(upload_text, self._gcs, self._cfg.output_bucket, key, text)
             extracted_text_uri = f"gs://{self._cfg.output_bucket}/{key}"
 
         # Truncate doc content if needed
@@ -264,7 +311,7 @@ class IngestionRunner:
             truncated = True
 
         # Chunk + embed (with character offsets for search highlighting)
-        chunks_with_spans = await chunk_document_with_spans(text, method="rule_based")
+        chunks_with_spans = await chunk_document_with_spans(stored_content, method="rule_based")
         if not chunks_with_spans:
             raise RuntimeError("Chunking produced zero chunks")
 
@@ -318,13 +365,18 @@ class IngestionRunner:
             )
 
         doc_id = out["document_id"]
-        await self._mark_item_completed(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri, user_id=user_id, document_id=doc_id)
+        await self._mark_item_completed(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            source_uri=item.source_uri,
+            user_id=user_id,
+            document_id=doc_id,
+        )
         return ProcessResult(item=item, status="completed", document_id=doc_id, error_message=None)
 
-    def _docai_output_prefix(self, *, tenant_id: str, run_id: str, source_uri: str) -> str:
+    def _docai_output_prefix(self, *, tenant_id: str, run_id: str, source_uri: str) -> str | None:
         if not self._cfg.output_bucket:
-            # still need an output prefix for DocAI batch; require output bucket when OCR is enabled
-            raise ValueError("RAG_INGEST_OUTPUT_BUCKET is required when OCR is enabled for PDF batch OCR")
+            return None
         # Safe-ish: use run id + hashed source uri (no slashes)
         import hashlib
 
@@ -350,7 +402,15 @@ class IngestionRunner:
                 source_uri,
             )
 
-    async def _mark_item_completed(self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str, document_id: str) -> None:
+    async def _mark_item_completed(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        source_uri: str,
+        user_id: str,
+        document_id: str,
+    ) -> None:
         async with rls_connection(tenant_id, user_id) as conn:
             await conn.execute(
                 """
@@ -369,7 +429,15 @@ class IngestionRunner:
                 run_id,
             )
 
-    async def _mark_item_skipped(self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str, document_id: str) -> None:
+    async def _mark_item_skipped(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        source_uri: str,
+        user_id: str,
+        document_id: str,
+    ) -> None:
         async with rls_connection(tenant_id, user_id) as conn:
             await conn.execute(
                 """
@@ -388,7 +456,9 @@ class IngestionRunner:
                 run_id,
             )
 
-    async def _mark_item_failed(self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str, error: str) -> None:
+    async def _mark_item_failed(
+        self, *, tenant_id: str, run_id: str, source_uri: str, user_id: str, error: str
+    ) -> None:
         async with rls_connection(tenant_id, user_id) as conn:
             await conn.execute(
                 """

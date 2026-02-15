@@ -117,10 +117,6 @@ async def rls_connection(tenant_id: str, user_id: str) -> AsyncIterator[asyncpg.
     async with pool.acquire() as conn, conn.transaction():
         # SET LOCAL doesn't support parameterized queries — use
         # quote_literal via the server to prevent SQL injection.
-        await conn.execute(
-            "SELECT set_config('app.tenant_id', $1, true)", tenant_id
-        )
-        await conn.execute(
-            "SELECT set_config('app.user_id', $1, true)", user_id
-        )
+        await conn.execute("SELECT set_config('app.tenant_id', $1, true)", tenant_id)
+        await conn.execute("SELECT set_config('app.user_id', $1, true)", user_id)
         yield conn

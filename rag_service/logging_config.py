@@ -49,15 +49,19 @@ def setup_logging(*, level: str = "INFO") -> None:
 
     handler = logging.StreamHandler()
     if is_cloud_run:
-        handler.setFormatter(GCPJsonFormatter(
-            fmt="%(message)s %(name)s %(funcName)s %(lineno)d",
-            rename_fields={"message": "message", "name": "logger"},
-        ))
+        handler.setFormatter(
+            GCPJsonFormatter(
+                fmt="%(message)s %(name)s %(funcName)s %(lineno)d",
+                rename_fields={"message": "message", "name": "logger"},
+            )
+        )
     else:
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s %(levelname)-8s %(name)s:%(lineno)d  %(message)s",
-            datefmt="%H:%M:%S",
-        ))
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)-8s %(name)s:%(lineno)d  %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
 
     root.addHandler(handler)
 

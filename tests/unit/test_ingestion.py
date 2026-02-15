@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,7 +19,14 @@ import pytest
 
 _MISSING_DEPS: list[str] = []
 
-for _mod_name in ("google.cloud", "google.cloud.storage", "bs4", "lxml", "docx", "pypdf"):
+for _mod_name in (
+    "google.cloud",
+    "google.cloud.storage",
+    "bs4",
+    "lxml",
+    "docx",
+    "pypdf",
+):
     if _mod_name not in sys.modules:
         try:
             __import__(_mod_name)
@@ -57,7 +64,11 @@ if _MISSING_DEPS:
 
 from rag_service.ingestion.config import IngestConfig  # noqa: E402
 from rag_service.ingestion.extractors.base import normalize_text  # noqa: E402
-from rag_service.ingestion.planner import compute_source_hash, derive_doc_type, discover_work_items  # noqa: E402
+from rag_service.ingestion.planner import (  # noqa: E402
+    compute_source_hash,
+    derive_doc_type,
+    discover_work_items,
+)
 from rag_service.ingestion.types import WorkItem  # noqa: E402
 
 # Mark extractor tests to skip if real deps aren't available
@@ -236,9 +247,16 @@ class TestPdfExtractor:
         from rag_service.ingestion.extractors.pdf import PdfExtractor
 
         mock_docai = MagicMock()
-        mock_docai.ocr_pdf_batch.return_value = ("OCR extracted text", {"provider": "documentai"})
+        mock_docai.ocr_pdf_batch.return_value = (
+            "OCR extracted text",
+            {"provider": "documentai"},
+        )
 
-        ext = PdfExtractor(docai=mock_docai, text_per_page_min=200, output_prefix_for_docai="gs://out/prefix/")
+        ext = PdfExtractor(
+            docai=mock_docai,
+            text_per_page_min=200,
+            output_prefix_for_docai="gs://out/prefix/",
+        )
         item = _make_item(doc_type="pdf")
 
         mock_reader = MagicMock()
@@ -258,7 +276,11 @@ class TestPdfExtractor:
         from rag_service.ingestion.extractors.pdf import PdfExtractor
 
         mock_docai = MagicMock()
-        ext = PdfExtractor(docai=mock_docai, text_per_page_min=50, output_prefix_for_docai="gs://out/prefix/")
+        ext = PdfExtractor(
+            docai=mock_docai,
+            text_per_page_min=50,
+            output_prefix_for_docai="gs://out/prefix/",
+        )
         item = _make_item(doc_type="pdf")
 
         mock_reader = MagicMock()
@@ -280,7 +302,10 @@ class TestImageExtractor:
         from rag_service.ingestion.extractors.image import ImageExtractor
 
         mock_docai = MagicMock()
-        mock_docai.ocr_online.return_value = ("Image text", {"provider": "documentai", "pages": 1})
+        mock_docai.ocr_online.return_value = (
+            "Image text",
+            {"provider": "documentai", "pages": 1},
+        )
 
         ext = ImageExtractor(docai=mock_docai)
         item = _make_item(doc_type="image", content_type="image/png")
@@ -396,7 +421,10 @@ class TestDiscoverWorkItems:
 
 class TestIngestConfigValidation:
     def test_missing_bucket_raises(self):
-        with pytest.raises(ValueError, match="RAG_INGEST_INPUT_BUCKET"), patch.dict("os.environ", {}, clear=True):
+        with (
+            pytest.raises(ValueError, match="RAG_INGEST_INPUT_BUCKET"),
+            patch.dict("os.environ", {}, clear=True),
+        ):
             IngestConfig.from_env()
 
     def test_ocr_enabled_without_processor_raises(self):
@@ -444,6 +472,285 @@ class TestIngestConfigValidation:
 # ===========================================================================
 # normalize_text
 # ===========================================================================
+
+
+@_need_ingestion_deps
+class TestPdfExtractorOcrGuard:
+    """Fix 2: PdfExtractor accepts None output_prefix and guards before OCR."""
+
+    def test_accepts_none_output_prefix(self):
+        """PdfExtractor can be constructed with output_prefix_for_docai=None."""
+        from rag_service.ingestion.extractors.pdf import PdfExtractor
+
+        mock_docai = MagicMock()
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None)
+        assert ext._docai_output_prefix is None
+
+    def test_raises_when_ocr_needed_but_prefix_is_none(self):
+        """When OCR is needed and output_prefix is None, raise ValueError."""
+        from rag_service.ingestion.extractors.pdf import PdfExtractor
+
+        mock_docai = MagicMock()
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=200, output_prefix_for_docai=None)
+        item = _make_item(doc_type="pdf")
+
+        # Mock PdfReader with very little text (triggers OCR)
+        mock_reader = MagicMock()
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "hi"
+        mock_reader.pages = [mock_page]
+
+        with (
+            patch(
+                "rag_service.ingestion.extractors.pdf.PdfReader",
+                return_value=mock_reader,
+            ),
+            pytest.raises(ValueError, match="RAG_INGEST_OUTPUT_BUCKET"),
+        ):
+            ext.extract(item=item, data=b"fake-pdf")
+
+    def test_good_text_works_with_none_prefix(self):
+        """PDFs with good text extraction skip OCR and don't need output_prefix."""
+        from rag_service.ingestion.extractors.pdf import PdfExtractor
+
+        mock_docai = MagicMock()
+        ext = PdfExtractor(docai=mock_docai, text_per_page_min=50, output_prefix_for_docai=None)
+        item = _make_item(doc_type="pdf")
+
+        mock_reader = MagicMock()
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "A" * 300
+        mock_reader.pages = [mock_page]
+
+        with patch("rag_service.ingestion.extractors.pdf.PdfReader", return_value=mock_reader):
+            result = ext.extract(item=item, data=b"fake-pdf")
+
+        assert result.used_ocr is False
+        mock_docai.ocr_pdf_batch.assert_not_called()
+
+
+@_need_ingestion_deps
+class TestChunksTruncatedContent:
+    """Fix 3: chunk_document_with_spans receives truncated content, not full text."""
+
+    async def test_chunker_receives_truncated_content(self):
+        """When text exceeds max_content_chars, chunker gets truncated version."""
+        from rag_service.ingestion.runner import IngestionRunner
+
+        cfg = IngestConfig(
+            input_bucket="bucket",
+            input_prefix="incoming/",
+            tenants_allowlist=None,
+            incremental=False,
+            force_reindex=False,
+            output_bucket=None,
+            output_prefix="rag-extracted/",
+            max_content_chars=100,  # Small limit for testing
+            ocr_enabled=False,
+            docai_project=None,
+            docai_location=None,
+            docai_processor_id=None,
+            pdf_text_per_page_min=200,
+            max_file_workers=3,
+            max_retries_per_file=2,
+        )
+        mock_client = MagicMock()
+        runner = IngestionRunner(cfg=cfg, storage_client=mock_client)
+
+        item = _make_item(doc_type="text")
+        long_text = "A" * 500  # Exceeds max_content_chars=100
+
+        mock_conn = AsyncMock()
+        mock_rls_cm = AsyncMock()
+        mock_rls_cm.__aenter__.return_value = mock_conn
+
+        mock_store = MagicMock()
+        mock_store.upsert_document_by_source_uri = AsyncMock(
+            return_value={
+                "document_id": "doc-1",
+                "status": "indexed",
+                "total_chunks": 1,
+            }
+        )
+        runner._store = mock_store
+
+        with (
+            patch(
+                "rag_service.ingestion.runner.download_bytes",
+                return_value=long_text.encode(),
+            ),
+            patch(
+                "rag_service.ingestion.runner.chunk_document_with_spans",
+                new_callable=AsyncMock,
+                return_value=[("chunk1", 0, 50)],
+            ) as mock_chunk,
+            patch(
+                "rag_service.ingestion.runner.embed_chunks",
+                new_callable=AsyncMock,
+                return_value=[[0.1] * 768],
+            ),
+            patch(
+                "rag_service.ingestion.runner.rls_connection",
+                return_value=mock_rls_cm,
+            ),
+        ):
+            await runner._process_item_once(
+                tenant_id="t1",
+                run_id="r1",
+                item=item,
+                under_tenant_prefix="incoming/",
+                force=True,
+                user_id="bot",
+            )
+
+            # Verify chunker was called and received truncated content
+            assert mock_chunk.called
+            chunked_text = mock_chunk.call_args[0][0]
+            assert len(chunked_text) == 100
+
+
+class TestDocaiOutputPrefixDeferred:
+    """Fix 2: _docai_output_prefix returns None when output_bucket is unset."""
+
+    def test_returns_none_when_no_output_bucket(self):
+        from rag_service.ingestion.runner import IngestionRunner
+
+        cfg = IngestConfig(
+            input_bucket="bucket",
+            input_prefix="incoming/",
+            tenants_allowlist=None,
+            incremental=True,
+            force_reindex=False,
+            output_bucket=None,
+            output_prefix="rag-extracted/",
+            max_content_chars=2_000_000,
+            ocr_enabled=False,
+            docai_project=None,
+            docai_location=None,
+            docai_processor_id=None,
+            pdf_text_per_page_min=200,
+            max_file_workers=3,
+            max_retries_per_file=2,
+        )
+        mock_client = MagicMock()
+        runner = IngestionRunner(cfg=cfg, storage_client=mock_client)
+
+        result = runner._docai_output_prefix(tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf")
+        assert result is None
+
+    def test_returns_prefix_when_output_bucket_set(self):
+        from rag_service.ingestion.runner import IngestionRunner
+
+        cfg = IngestConfig(
+            input_bucket="bucket",
+            input_prefix="incoming/",
+            tenants_allowlist=None,
+            incremental=True,
+            force_reindex=False,
+            output_bucket="out-bucket",
+            output_prefix="rag-extracted/",
+            max_content_chars=2_000_000,
+            ocr_enabled=False,
+            docai_project=None,
+            docai_location=None,
+            docai_processor_id=None,
+            pdf_text_per_page_min=200,
+            max_file_workers=3,
+            max_retries_per_file=2,
+        )
+        mock_client = MagicMock()
+        runner = IngestionRunner(cfg=cfg, storage_client=mock_client)
+
+        result = runner._docai_output_prefix(tenant_id="t1", run_id="r1", source_uri="gs://b/f.pdf")
+        assert result is not None
+        assert result.startswith("gs://out-bucket/")
+
+
+class TestAsyncIOThreadWrapping:
+    """Fix 1: Verify blocking I/O calls in runner are wrapped with asyncio.to_thread."""
+
+    def test_runner_source_uses_to_thread(self):
+        """runner.py wraps download_bytes/extract/upload_text in asyncio.to_thread."""
+        import inspect
+
+        from rag_service.ingestion import runner
+
+        source = inspect.getsource(runner.IngestionRunner._process_item_once)
+
+        assert "asyncio.to_thread(" in source
+        assert "download_bytes" in source
+        assert "extractor.extract" in source
+        assert "upload_text" in source
+
+    def test_blocking_calls_are_awaited(self):
+        """Each asyncio.to_thread call is awaited."""
+        import inspect
+
+        from rag_service.ingestion import runner
+
+        source = inspect.getsource(runner.IngestionRunner._process_item_once)
+
+        assert "await asyncio.to_thread(" in source
+        assert "download_bytes" in source
+        assert "extractor.extract" in source
+        assert "upload_text" in source
+
+
+class TestUnchangedUpsertSkipsContent:
+    """Fix 3: Verify unchanged-path UPDATE does not write content column."""
+
+    async def test_unchanged_update_sql_omits_content(self):
+        """The unchanged-path UPDATE should not include 'content ='."""
+        from rag_service.stores.rag_document_store import RagDocumentStore
+
+        store = RagDocumentStore()
+        mock_conn = AsyncMock()
+        # conn.transaction() must return an async context manager, not a coroutine
+        mock_tx = AsyncMock()
+        mock_conn.transaction = MagicMock(return_value=mock_tx)
+
+        import hashlib
+
+        from rag_service.config import (
+            RAG_EMBEDDING_DIM,
+            RAG_EMBEDDING_MODEL,
+            RAG_INGESTION_VERSION,
+        )
+
+        content = "test content"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        existing_row = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "content_hash": content_hash,
+            "source_hash": "src123",
+            "ingestion_version": RAG_INGESTION_VERSION,
+            "chunk_method": "rule_based",
+            "embedding_model": RAG_EMBEDDING_MODEL,
+            "embedding_dim": RAG_EMBEDDING_DIM,
+            "total_chunks": 5,
+        }
+        mock_conn.fetchrow.return_value = existing_row
+        mock_conn.execute.return_value = "UPDATE 1"
+
+        result = await store.upsert_document_by_source_uri(
+            mock_conn,
+            tenant_id="t1",
+            source_uri="gs://bucket/file.txt",
+            source_hash="src123",
+            title="Test",
+            content=content,
+            chunks=["c1"],
+            embeddings=[[0.1] * 768],
+            skip_if_unchanged=True,
+        )
+
+        assert result["status"] == "unchanged"
+        # Verify the UPDATE SQL does not contain 'content ='
+        update_call = mock_conn.execute.call_args
+        update_sql = update_call[0][0]
+        assert "content =" not in update_sql
+        assert "source_hash =" in update_sql
 
 
 class TestNormalizeText:

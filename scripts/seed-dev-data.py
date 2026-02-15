@@ -12,8 +12,8 @@ Requires:
 from __future__ import annotations
 
 import asyncio
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -90,9 +90,9 @@ SAMPLE_DOCUMENTS = [
 
 
 async def main() -> None:
-    from rag_service.db import get_pool, close_pool, rls_connection
-    from rag_service.embedding import embed_chunks
     from rag_service.chunking.chunker import chunk_document
+    from rag_service.db import close_pool, rls_connection
+    from rag_service.embedding import embed_chunks
     from rag_service.stores.rag_document_store import RagDocumentStore
 
     store = RagDocumentStore()

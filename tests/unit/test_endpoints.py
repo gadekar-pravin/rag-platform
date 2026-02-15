@@ -94,6 +94,9 @@ async def client(_mock_lifespan, _mock_auth):
     with _mock_auth:
         from rag_service.app import app
 
+        # Reset rate limiter state between tests to avoid cross-test interference
+        app.state.limiter.reset()
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
@@ -206,18 +209,22 @@ class TestBodySizeMiddleware:
         )
         assert resp.status_code == 413
 
+    @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
     async def test_normal_content_length_passes(
         self,
+        mock_rls: MagicMock,
         client: AsyncClient,
         auth_headers: dict[str, str],
     ):
         """Small Content-Length should not be rejected by size middleware."""
         # This will be rejected by validation (missing fields), but NOT by size middleware.
-        resp = await client.post(
-            "/v1/index",
-            json={"title": "T", "content": "C"},
-            headers=auth_headers,
-        )
+        with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
+            resp = await client.post(
+                "/v1/index",
+                json={"title": "T", "content": "C"},
+                headers=auth_headers,
+            )
         # Should get past the body size check (not 413).
         assert resp.status_code != 413
 
@@ -245,6 +252,7 @@ class TestIndexEndpoint:
         mock_embed.return_value = [[0.1] * 768, [0.2] * 768]
 
         with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
             mock_ds.upsert_document = AsyncMock(
                 return_value={
                     "document_id": doc_id,
@@ -321,18 +329,12 @@ class TestIndexEndpoint:
         client: AsyncClient,
         auth_headers: dict[str, str],
     ):
-        """When the store detects a duplicate, status is 'deduplicated'."""
+        """When check_dedup detects a duplicate, status is 'deduplicated'."""
         doc_id = str(uuid.uuid4())
-        mock_chunk.return_value = ["chunk-1"]
-        mock_embed.return_value = [[0.1] * 768]
 
         with patch("rag_service.app._doc_store") as mock_ds:
-            mock_ds.upsert_document = AsyncMock(
-                return_value={
-                    "document_id": doc_id,
-                    "status": "deduplicated",
-                    "total_chunks": 1,
-                }
+            mock_ds.check_dedup = AsyncMock(
+                return_value={"document_id": doc_id, "total_chunks": 1}
             )
             resp = await client.post(
                 "/v1/index",
@@ -362,6 +364,7 @@ class TestIndexEndpoint:
         mock_embed.return_value = [[0.1] * 768]
 
         with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
             mock_ds.upsert_document = AsyncMock(
                 return_value={
                     "document_id": doc_id,
@@ -402,6 +405,7 @@ class TestIndexEndpoint:
         mock_embed.return_value = [[0.1] * 768]
 
         with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
             mock_ds.upsert_document = AsyncMock(
                 return_value={
                     "document_id": doc_id,
@@ -432,11 +436,13 @@ class TestIndexEndpoint:
         auth_headers: dict[str, str],
     ):
         """Embedding failure returns 503."""
-        resp = await client.post(
-            "/v1/index",
-            json={"title": "Doc", "content": "Content."},
-            headers=auth_headers,
-        )
+        with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
+            resp = await client.post(
+                "/v1/index",
+                json={"title": "Doc", "content": "Content."},
+                headers=auth_headers,
+            )
         assert resp.status_code == 503
         assert "Embedding service unavailable" in resp.json()["detail"]
 
@@ -471,6 +477,7 @@ class TestIndexEndpoint:
         metadata = {"source": "upload", "author": "tester"}
 
         with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
             mock_ds.upsert_document = AsyncMock(
                 return_value={
                     "document_id": doc_id,
@@ -494,6 +501,75 @@ class TestIndexEndpoint:
 
     @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
     @patch("rag_service.app.embed_chunks", new_callable=AsyncMock)
+    @patch("rag_service.app.chunk_document", new_callable=AsyncMock)
+    async def test_index_dedup_precheck_skips_embedding(
+        self,
+        mock_chunk: AsyncMock,
+        mock_embed: AsyncMock,
+        mock_rls: MagicMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ):
+        """Fix 4: When check_dedup finds a match, embed_chunks is NOT called."""
+        doc_id = str(uuid.uuid4())
+
+        with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(
+                return_value={"document_id": doc_id, "total_chunks": 3}
+            )
+            resp = await client.post(
+                "/v1/index",
+                json={"title": "Dup Doc", "content": "Duplicate content."},
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "deduplicated"
+        assert body["document_id"] == doc_id
+        assert body["total_chunks"] == 3
+        # Embedding and chunking should NOT have been called
+        mock_embed.assert_not_called()
+        mock_chunk.assert_not_called()
+
+    @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
+    @patch("rag_service.app.embed_chunks", new_callable=AsyncMock)
+    @patch("rag_service.app.chunk_document", new_callable=AsyncMock)
+    async def test_index_no_dedup_match_proceeds_to_embed(
+        self,
+        mock_chunk: AsyncMock,
+        mock_embed: AsyncMock,
+        mock_rls: MagicMock,
+        client: AsyncClient,
+        auth_headers: dict[str, str],
+    ):
+        """Fix 4: When check_dedup returns None, chunking and embedding proceed."""
+        doc_id = str(uuid.uuid4())
+        mock_chunk.return_value = ["chunk-1"]
+        mock_embed.return_value = [[0.1] * 768]
+
+        with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
+            mock_ds.upsert_document = AsyncMock(
+                return_value={
+                    "document_id": doc_id,
+                    "status": "indexed",
+                    "total_chunks": 1,
+                }
+            )
+            resp = await client.post(
+                "/v1/index",
+                json={"title": "New Doc", "content": "Fresh content."},
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "indexed"
+        mock_embed.assert_called_once()
+        mock_chunk.assert_called_once()
+
+    @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
+    @patch("rag_service.app.embed_chunks", new_callable=AsyncMock)
     @patch("rag_service.app.chunk_document", new_callable=AsyncMock, return_value=[])
     async def test_index_no_chunks_returns_400(
         self,
@@ -504,11 +580,13 @@ class TestIndexEndpoint:
         auth_headers: dict[str, str],
     ):
         """Document that produces zero chunks is rejected with 400."""
-        resp = await client.post(
-            "/v1/index",
-            json={"title": "Empty Doc", "content": "x"},
-            headers=auth_headers,
-        )
+        with patch("rag_service.app._doc_store") as mock_ds:
+            mock_ds.check_dedup = AsyncMock(return_value=None)
+            resp = await client.post(
+                "/v1/index",
+                json={"title": "Empty Doc", "content": "x"},
+                headers=auth_headers,
+            )
         assert resp.status_code == 400
         assert "no chunks" in resp.json()["detail"].lower()
 
@@ -814,6 +892,8 @@ class TestSearchEndpoint:
                 "text_pool_size": 8,
                 "vector_has_more": True,
                 "text_has_more": False,
+                "vector_cutoff_score": 0.72,
+                "text_cutoff_score": 0.15,
             },
         }
 
@@ -830,6 +910,8 @@ class TestSearchEndpoint:
         assert body["debug"] is not None
         assert body["debug"]["vector_pool_size"] == 15
         assert body["debug"]["text_has_more"] is False
+        assert body["debug"]["vector_cutoff_score"] == 0.72
+        assert body["debug"]["text_cutoff_score"] == 0.15
 
     @patch("rag_service.app.rls_connection", side_effect=_fake_rls_connection)
     @patch("rag_service.app.embed_query", new_callable=AsyncMock)

@@ -117,6 +117,100 @@ class TestSearchHybrid:
         assert call_args[0][2] == 16  # 5 * 3 + 1
 
 
+class TestSearchDebugCutoffScores:
+    """Fix 6: Verify cutoff scores appear in debug output."""
+
+    async def test_debug_includes_cutoff_scores(self, store, mock_conn, sample_query_vec):
+        """When include_debug=True, cutoff scores are returned."""
+        doc_id = uuid.uuid4()
+        chunk_id = uuid.uuid4()
+
+        # First call: fused results
+        # Second call: best chunks
+        # Third call: pool stats (fetchrow)
+        mock_conn.fetch.side_effect = [
+            [
+                {
+                    "document_id": doc_id,
+                    "title": "Test Doc",
+                    "doc_type": "markdown",
+                    "rrf_score": 0.03,
+                    "vector_score": 0.016,
+                    "text_score": 0.014,
+                }
+            ],
+            [
+                {
+                    "document_id": doc_id,
+                    "chunk_id": chunk_id,
+                    "chunk_index": 0,
+                    "chunk_text": "Sample chunk text",
+                    "source": "vector",
+                    "score": 0.95,
+                }
+            ],
+        ]
+        mock_conn.fetchrow.return_value = {
+            "vector_pool_size": 5,
+            "text_pool_size": 3,
+            "vector_cutoff_score": 0.72,
+            "text_cutoff_score": 0.15,
+        }
+
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec,
+            doc_limit=5, include_debug=True
+        )
+
+        assert result["debug"] is not None
+        assert result["debug"]["vector_cutoff_score"] == 0.72
+        assert result["debug"]["text_cutoff_score"] == 0.15
+
+    async def test_debug_cutoff_scores_none_when_no_results(self, store, mock_conn, sample_query_vec):
+        """With empty results, cutoff scores should be None."""
+        mock_conn.fetch.return_value = []
+
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec,
+            doc_limit=5, include_debug=True
+        )
+
+        assert result["debug"]["vector_cutoff_score"] is None
+        assert result["debug"]["text_cutoff_score"] is None
+
+    async def test_debug_cutoff_scores_null_from_db(self, store, mock_conn, sample_query_vec):
+        """When DB returns NULL for cutoff scores (vector-only match), handle gracefully."""
+        doc_id = uuid.uuid4()
+
+        mock_conn.fetch.side_effect = [
+            [
+                {
+                    "document_id": doc_id,
+                    "title": "Doc",
+                    "doc_type": None,
+                    "rrf_score": 0.01,
+                    "vector_score": 0.01,
+                    "text_score": 0.0,
+                }
+            ],
+            [],  # no best chunks
+        ]
+        mock_conn.fetchrow.return_value = {
+            "vector_pool_size": 2,
+            "text_pool_size": 0,
+            "vector_cutoff_score": 0.85,
+            "text_cutoff_score": None,
+        }
+
+        result = await store.search_hybrid(
+            mock_conn, "test query", sample_query_vec,
+            doc_limit=5, include_debug=True
+        )
+
+        assert result["debug"]["vector_cutoff_score"] == 0.85
+        assert result["debug"]["text_cutoff_score"] is None
+
+
 class TestRRFScoring:
     """Verify RRF score calculation logic."""
 

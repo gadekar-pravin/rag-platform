@@ -197,6 +197,8 @@ class RagSearchStore:
                     "text_pool_size": 0,
                     "vector_has_more": False,
                     "text_has_more": False,
+                    "vector_cutoff_score": None,
+                    "text_cutoff_score": None,
                 }
             return result
 
@@ -238,6 +240,8 @@ class RagSearchStore:
                 "text_pool_size": stats["text_pool_size"],
                 "vector_has_more": stats["vector_pool_size"] > chunk_limit,
                 "text_has_more": stats["text_pool_size"] > chunk_limit,
+                "vector_cutoff_score": stats.get("vector_cutoff_score"),
+                "text_cutoff_score": stats.get("text_cutoff_score"),
             }
 
         return result
@@ -249,8 +253,8 @@ class RagSearchStore:
         conn: asyncpg.Connection,
         candidate_limit: int,
         per_doc_cap: int,
-    ) -> dict[str, int]:
-        """Compute bounded pool sizes for debug without full-table counts."""
+    ) -> dict[str, Any]:
+        """Compute bounded pool sizes and cutoff scores for debug."""
         row = await conn.fetchrow(
             """
             WITH
@@ -265,10 +269,11 @@ class RagSearchStore:
                 LIMIT $2
             ),
             vector_pool AS (
-                SELECT ranked.document_id
+                SELECT ranked.document_id, ranked.distance
                 FROM (
                     SELECT
                         vc.document_id,
+                        vc.distance,
                         ROW_NUMBER() OVER (
                             PARTITION BY vc.document_id
                             ORDER BY vc.distance
@@ -288,10 +293,11 @@ class RagSearchStore:
                 LIMIT $2
             ),
             text_pool AS (
-                SELECT ranked.document_id
+                SELECT ranked.document_id, ranked.score
                 FROM (
                     SELECT
                         tc.document_id,
+                        tc.score,
                         ROW_NUMBER() OVER (
                             PARTITION BY tc.document_id
                             ORDER BY tc.score DESC
@@ -302,7 +308,9 @@ class RagSearchStore:
             )
             SELECT
                 (SELECT COUNT(*) FROM vector_pool) AS vector_pool_size,
-                (SELECT COUNT(*) FROM text_pool) AS text_pool_size
+                (SELECT COUNT(*) FROM text_pool) AS text_pool_size,
+                (SELECT 1 - MAX(distance) FROM vector_pool) AS vector_cutoff_score,
+                (SELECT MIN(score) FROM text_pool) AS text_cutoff_score
             """,
             query_vec,
             candidate_limit,
@@ -310,10 +318,21 @@ class RagSearchStore:
             per_doc_cap,
         )
         if row is None:
-            return {"vector_pool_size": 0, "text_pool_size": 0}
+            return {
+                "vector_pool_size": 0,
+                "text_pool_size": 0,
+                "vector_cutoff_score": None,
+                "text_cutoff_score": None,
+            }
         return {
             "vector_pool_size": int(row["vector_pool_size"] or 0),
             "text_pool_size": int(row["text_pool_size"] or 0),
+            "vector_cutoff_score": (
+                float(row["vector_cutoff_score"]) if row["vector_cutoff_score"] is not None else None
+            ),
+            "text_cutoff_score": (
+                float(row["text_cutoff_score"]) if row["text_cutoff_score"] is not None else None
+            ),
         }
 
     async def _get_best_chunks(

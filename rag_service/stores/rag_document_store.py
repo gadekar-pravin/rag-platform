@@ -45,6 +45,68 @@ class RagDocumentStore:
         )
         return dict(row) if row else None
 
+    async def check_dedup(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        content_hash: str,
+        visibility: str,
+        owner_user_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Check if an identical document already exists (same content + settings).
+
+        Returns ``{document_id, total_chunks}`` when a match is found, or
+        ``None`` if no duplicate exists.  Used by ``/v1/index`` to skip
+        expensive chunking/embedding when the content is already indexed.
+        """
+        if visibility == "TEAM":
+            row = await conn.fetchrow(
+                """
+                SELECT id, total_chunks,
+                       ingestion_version, chunk_method, embedding_model, embedding_dim
+                FROM rag_documents
+                WHERE visibility = 'TEAM'
+                  AND source_uri IS NULL
+                  AND content_hash = $1
+                  AND deleted_at IS NULL
+                """,
+                content_hash,
+            )
+        else:
+            if not owner_user_id:
+                return None
+            row = await conn.fetchrow(
+                """
+                SELECT id, total_chunks,
+                       ingestion_version, chunk_method, embedding_model, embedding_dim
+                FROM rag_documents
+                WHERE visibility = 'PRIVATE'
+                  AND owner_user_id = $1
+                  AND content_hash = $2
+                  AND deleted_at IS NULL
+                """,
+                owner_user_id,
+                content_hash,
+            )
+
+        if row is None:
+            return None
+
+        # Only consider it a true duplicate if ingestion settings also match
+        settings_match = (
+            row["ingestion_version"] == RAG_INGESTION_VERSION
+            and row["chunk_method"] == "rule_based"
+            and row["embedding_model"] == RAG_EMBEDDING_MODEL
+            and row["embedding_dim"] == RAG_EMBEDDING_DIM
+        )
+        if not settings_match:
+            return None
+
+        return {
+            "document_id": str(row["id"]),
+            "total_chunks": int(row["total_chunks"] or 0),
+        }
+
     async def upsert_document_by_source_uri(
         self,
         conn: asyncpg.Connection,

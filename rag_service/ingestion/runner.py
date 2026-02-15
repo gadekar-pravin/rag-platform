@@ -264,7 +264,7 @@ class IngestionRunner:
             truncated = True
 
         # Chunk + embed (with character offsets for search highlighting)
-        chunks_with_spans = await chunk_document_with_spans(text, method="rule_based")
+        chunks_with_spans = await chunk_document_with_spans(stored_content, method="rule_based")
         if not chunks_with_spans:
             raise RuntimeError("Chunking produced zero chunks")
 
@@ -321,10 +321,9 @@ class IngestionRunner:
         await self._mark_item_completed(tenant_id=tenant_id, run_id=run_id, source_uri=item.source_uri, user_id=user_id, document_id=doc_id)
         return ProcessResult(item=item, status="completed", document_id=doc_id, error_message=None)
 
-    def _docai_output_prefix(self, *, tenant_id: str, run_id: str, source_uri: str) -> str:
+    def _docai_output_prefix(self, *, tenant_id: str, run_id: str, source_uri: str) -> str | None:
         if not self._cfg.output_bucket:
-            # still need an output prefix for DocAI batch; require output bucket when OCR is enabled
-            raise ValueError("RAG_INGEST_OUTPUT_BUCKET is required when OCR is enabled for PDF batch OCR")
+            return None
         # Safe-ish: use run id + hashed source uri (no slashes)
         import hashlib
 

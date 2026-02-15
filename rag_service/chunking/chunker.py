@@ -63,6 +63,77 @@ async def chunk_document(
     return _chunk_recursive(text, chunk_size, chunk_overlap)
 
 
+async def chunk_document_with_spans(
+    text: str,
+    method: str = "rule_based",
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = _DEFAULT_CHUNK_OVERLAP,
+    *,
+    semantic_model: str = _DEFAULT_SEMANTIC_MODEL,
+    semantic_block_words: int = _DEFAULT_SEMANTIC_BLOCK_WORDS,
+) -> list[tuple[str, int | None, int | None]]:
+    """Chunk a document and return (text, start_char, end_char) tuples.
+
+    For rule-based chunking, character offsets are computed by locating each
+    chunk in the original text.  For semantic chunking, offsets are None
+    because LLM-driven splitting may rewrite whitespace.
+    """
+    if not text or not text.strip():
+        return []
+
+    chunk_size, chunk_overlap = _validate_chunk_params(chunk_size, chunk_overlap)
+
+    if method == "semantic":
+        try:
+            chunks = await _chunk_semantic(text, semantic_model, semantic_block_words)
+            chunks = _enforce_max_chunk_size(chunks, chunk_size, chunk_overlap)
+        except Exception:
+            logger.exception("Semantic chunking failed; falling back to rule_based")
+            chunks = _chunk_recursive(text, chunk_size, chunk_overlap)
+        # Semantic mode: offsets are not reliable
+        return [(c, None, None) for c in chunks]
+
+    # Rule-based: track character offsets by scanning through the original text
+    chunks = _chunk_recursive(text, chunk_size, chunk_overlap)
+    return _assign_offsets(text, chunks, chunk_overlap)
+
+
+def _assign_offsets(
+    original: str,
+    chunks: list[str],
+    chunk_overlap: int,
+) -> list[tuple[str, int | None, int | None]]:
+    """Locate each chunk's position in the original text."""
+    result: list[tuple[str, int | None, int | None]] = []
+    search_from = 0
+
+    for chunk in chunks:
+        # For overlapped chunks, strip the overlap prefix to find the core
+        # content position, then adjust backwards.
+        core = chunk[chunk_overlap:] if chunk_overlap and len(chunk) > chunk_overlap else chunk
+        idx = original.find(core, search_from)
+        if idx == -1:
+            # Fallback: try finding the full chunk from the beginning
+            idx = original.find(chunk)
+        if idx == -1:
+            # Cannot locate — use None offsets
+            result.append((chunk, None, None))
+            continue
+
+        # Adjust start back for overlap prefix
+        start = (  # noqa: SIM108
+            idx - chunk_overlap
+            if core != chunk and idx >= chunk_overlap
+            else max(idx, 0) if core == chunk else idx
+        )
+        end = start + len(chunk)
+        result.append((chunk, start, end))
+        # Advance search position past the core content
+        search_from = idx + len(core)
+
+    return result
+
+
 def _validate_chunk_params(chunk_size: int, chunk_overlap: int) -> tuple[int, int]:
     """Sanitize chunk parameters."""
     chunk_size = int(chunk_size)

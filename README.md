@@ -201,6 +201,69 @@ Add to `.vscode/mcp.json` in your workspace:
 - **`search`** — Search the team's document knowledge base by natural language query
 - **`list_documents`** — Browse available documents with pagination
 
+## Manual Ingestion from GCS
+
+The ingestion pipeline imports documents from a GCS bucket, extracts text (with OCR fallback for scanned PDFs and images), chunks, embeds, and stores them in AlloyDB.
+
+### GCS Bucket Layout
+
+```
+gs://<bucket>/
+  <tenant_id>/
+    incoming/            # default prefix (configurable)
+      report.pdf
+      notes.docx
+      guide.html
+      diagram.png
+```
+
+Supported formats: `.pdf`, `.docx`, `.html`/`.htm`, `.txt`/`.md`, `.png`/`.jpg`/`.jpeg`/`.webp`/`.tiff`
+
+### Local Usage
+
+```bash
+# Install ingestion dependencies
+pip install -e ".[ingestion]"
+
+# Run for a specific tenant
+RAG_INGEST_INPUT_BUCKET=my-docs-bucket \
+GEMINI_API_KEY=<key> \
+python -m rag_service.ingestion.main --tenant=acme-corp
+
+# Dry run (list files without processing)
+python -m rag_service.ingestion.main --tenant=acme-corp --dry-run
+
+# Force reindex (ignore incremental cache)
+python -m rag_service.ingestion.main --tenant=acme-corp --force
+```
+
+### Cloud Run Job
+
+```bash
+# Build the ingestor image
+docker build -f rag_service/Dockerfile.ingestor -t rag-ingestor:local .
+
+# Run as a Cloud Run Job
+gcloud run jobs create rag-ingest \
+  --image=<region>-docker.pkg.dev/<project>/rag/rag-ingestor:latest \
+  --set-env-vars="RAG_INGEST_INPUT_BUCKET=my-docs-bucket,TENANT_ID=acme-corp" \
+  --task-timeout=3600s
+```
+
+### Key Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RAG_INGEST_INPUT_BUCKET` | (required) | GCS bucket containing source documents |
+| `RAG_INGEST_INPUT_PREFIX` | `incoming/` | Prefix under each tenant directory |
+| `RAG_OCR_ENABLED` | `true` | Enable Document AI OCR for scanned PDFs/images |
+| `RAG_DOC_AI_PROJECT` | -- | GCP project for Document AI |
+| `RAG_DOC_AI_PROCESSOR_ID` | -- | Document AI processor ID |
+| `RAG_INGEST_MAX_FILE_WORKERS` | `3` | Concurrent file processing workers |
+| `RAG_INGEST_INCREMENTAL` | `true` | Skip unchanged files (by GCS metadata hash) |
+
+See `docs/alloy_db_manual_ingestion_implementation_plan_v_1.md` for the full implementation plan.
+
 ## Development
 
 ### Running Tests

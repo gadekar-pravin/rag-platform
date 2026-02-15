@@ -17,6 +17,7 @@ depends_on = None
 
 def upgrade() -> None:
     # -- Extensions -----------------------------------------------------------
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # -- rag_documents --------------------------------------------------------

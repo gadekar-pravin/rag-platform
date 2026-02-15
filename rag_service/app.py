@@ -1,0 +1,273 @@
+"""FastAPI entry point for the RAG platform service.
+
+Endpoints:
+- POST /v1/search       — Hybrid search (embed query -> RLS -> RRF)
+- GET  /v1/documents    — List visible documents
+- DELETE /v1/documents/{id} — Soft delete (owner-only for PRIVATE)
+- POST /v1/index        — Index a document (MVP manual upload)
+- GET  /liveness        — Health check
+- GET  /readiness       — DB connectivity check
+"""
+
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+from rag_service.auth import Identity, get_identity, is_public_path, require_auth_on_cloud_run
+from rag_service.config import RAG_CHUNK_OVERLAP, RAG_CHUNK_SIZE
+from rag_service.db import check_db_connection, close_pool, get_pool, rls_connection
+from rag_service.embedding import embed_chunks, embed_query
+from rag_service.chunking.chunker import chunk_document
+from rag_service.models import (
+    DeleteResponse,
+    DocumentListResponse,
+    DocumentSummary,
+    HealthResponse,
+    IndexRequest,
+    IndexResponse,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+    ChunkResult,
+    SearchDebug,
+)
+from rag_service.stores.rag_document_store import RagDocumentStore
+from rag_service.stores.rag_search_store import RagSearchStore
+
+logger = logging.getLogger(__name__)
+
+_doc_store = RagDocumentStore()
+_search_store = RagSearchStore()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Application lifespan: init pool on startup, close on shutdown."""
+    require_auth_on_cloud_run()
+    await get_pool()
+    logger.info("RAG service started")
+    yield
+    await close_pool()
+    logger.info("RAG service stopped")
+
+
+app = FastAPI(
+    title="RAG Platform API",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# -- Auth middleware ----------------------------------------------------------
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Enforce authentication on all non-public paths."""
+    if request.method == "OPTIONS" or is_public_path(request.url.path):
+        return await call_next(request)
+
+    try:
+        identity = await get_identity(request)
+        request.state.identity = identity
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Auth middleware error: %s", e)
+        raise HTTPException(status_code=401, detail="Authentication failed") from e
+
+    return await call_next(request)
+
+
+def _get_identity(request: Request) -> Identity:
+    """Dependency: extract identity from request state (set by middleware)."""
+    identity = getattr(request.state, "identity", None)
+    if identity is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return identity
+
+
+# -- Health -------------------------------------------------------------------
+
+
+@app.get("/liveness", response_model=HealthResponse)
+async def liveness() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.get("/readiness", response_model=HealthResponse)
+async def readiness() -> HealthResponse:
+    healthy = await check_db_connection()
+    if not healthy:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return HealthResponse(status="ok")
+
+
+# -- Search -------------------------------------------------------------------
+
+
+@app.post("/v1/search", response_model=SearchResponse)
+async def search(
+    body: SearchRequest,
+    identity: Identity = Depends(_get_identity),
+) -> SearchResponse:
+    """Hybrid search: embed query -> RLS-scoped search -> RRF fusion."""
+    query_text = body.query.strip()
+    if not query_text:
+        raise HTTPException(status_code=400, detail="Query must not be blank")
+
+    query_vec = await embed_query(query_text)
+
+    async with rls_connection(identity.tenant_id, identity.user_id) as conn:
+        raw = await _search_store.search_hybrid(
+            conn,
+            query_text,
+            query_vec,
+            doc_limit=body.limit,
+            include_debug=body.include_debug,
+        )
+
+    results = [
+        SearchResult(
+            document_id=r["document_id"],
+            title=r["title"],
+            doc_type=r.get("doc_type"),
+            rrf_score=r["rrf_score"],
+            vector_score=r["vector_score"],
+            text_score=r["text_score"],
+            chunks=[
+                ChunkResult(
+                    chunk_id=c["chunk_id"],
+                    chunk_index=c["chunk_index"],
+                    chunk_text=c["chunk_text"],
+                    source=c["source"],
+                    score=c["score"],
+                )
+                for c in r.get("chunks", [])
+            ],
+        )
+        for r in raw["results"]
+    ]
+
+    debug = None
+    if raw.get("debug"):
+        d = raw["debug"]
+        debug = SearchDebug(
+            vector_pool_size=d["vector_pool_size"],
+            text_pool_size=d["text_pool_size"],
+            vector_has_more=d["vector_has_more"],
+            text_has_more=d["text_has_more"],
+        )
+
+    return SearchResponse(results=results, debug=debug)
+
+
+# -- Documents ----------------------------------------------------------------
+
+
+@app.get("/v1/documents", response_model=DocumentListResponse)
+async def list_documents(
+    limit: int = 50,
+    offset: int = 0,
+    identity: Identity = Depends(_get_identity),
+) -> DocumentListResponse:
+    """List visible documents (TEAM + owned PRIVATE, enforced by RLS)."""
+    async with rls_connection(identity.tenant_id, identity.user_id) as conn:
+        docs, total = await _doc_store.list_documents(conn, limit=limit, offset=offset)
+
+    return DocumentListResponse(
+        documents=[
+            DocumentSummary(
+                id=str(d["id"]),
+                title=d["title"],
+                doc_type=d.get("doc_type"),
+                source_uri=d.get("source_uri"),
+                visibility=d.get("visibility", "TEAM"),
+                total_chunks=d.get("total_chunks"),
+                embedding_model=d.get("embedding_model"),
+                created_at=d.get("created_at"),
+                updated_at=d.get("updated_at"),
+            )
+            for d in docs
+        ],
+        total=total,
+    )
+
+
+@app.delete("/v1/documents/{doc_id}", response_model=DeleteResponse)
+async def delete_document(
+    doc_id: str,
+    identity: Identity = Depends(_get_identity),
+) -> DeleteResponse:
+    """Soft-delete a document. RLS ensures only visible/owned docs can be deleted."""
+    async with rls_connection(identity.tenant_id, identity.user_id) as conn:
+        deleted = await _doc_store.soft_delete(conn, doc_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found or not authorized")
+
+    return DeleteResponse(deleted=True, document_id=doc_id)
+
+
+# -- Index (MVP) --------------------------------------------------------------
+
+
+@app.post("/v1/index", response_model=IndexResponse)
+async def index_document(
+    body: IndexRequest,
+    identity: Identity = Depends(_get_identity),
+) -> IndexResponse:
+    """Index a document: validate -> hash -> dedup -> chunk -> embed -> store."""
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Content must not be blank")
+
+    # Determine owner_user_id based on visibility
+    owner_user_id = identity.user_id if body.visibility == "PRIVATE" else None
+
+    # Chunk the document
+    chunks = await chunk_document(
+        content,
+        method="rule_based",
+        chunk_size=RAG_CHUNK_SIZE,
+        chunk_overlap=RAG_CHUNK_OVERLAP,
+    )
+    if not chunks:
+        raise HTTPException(status_code=400, detail="Document produced no chunks")
+
+    # Embed all chunks
+    embeddings = await embed_chunks(chunks)
+
+    # Store via RLS-scoped connection
+    async with rls_connection(identity.tenant_id, identity.user_id) as conn:
+        result = await _doc_store.upsert_document(
+            conn,
+            tenant_id=identity.tenant_id,
+            title=body.title,
+            content=content,
+            chunks=chunks,
+            embeddings=embeddings,
+            visibility=body.visibility,
+            owner_user_id=owner_user_id,
+            doc_type=body.doc_type,
+            metadata=body.metadata,
+        )
+
+    return IndexResponse(
+        document_id=result["document_id"],
+        status=result["status"],
+        total_chunks=result["total_chunks"],
+    )

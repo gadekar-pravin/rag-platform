@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "rag-search": {
+      "type": "sse",
+      "url": "https://rag-mcp-<hash>.a.run.app/sse",
+      "headers": {
+        "Authorization": "Bearer <your-id-token>"
+      }
+    }
+  }
+}

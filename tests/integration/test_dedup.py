@@ -163,7 +163,7 @@ class TestContentHashDedup:
             )
             assert r2["status"] == "deduplicated"
 
-    async def test_cascade_delete_chunks_and_embeddings(self, db_pool, store):
+    async def test_soft_delete_hides_chunks_via_rls(self, db_pool, store):
         """Soft-deleting a document hides its chunks via RLS."""
         content = "Cascade test content"
         chunks = ["chunk one", "chunk two"]

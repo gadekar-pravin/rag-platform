@@ -124,7 +124,7 @@ class TestHybridSearch:
                 chunks=["Machine learning algorithms for data science"],
                 embeddings=[query_vec],  # identical to query = best vector match
             )
-            # Doc that matches only vector (no FTS match)
+            # Doc that matches neither vector nor text (control document)
             await doc_store.upsert_document(
                 conn,
                 tenant_id="t1",

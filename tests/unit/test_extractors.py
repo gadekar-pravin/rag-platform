@@ -6,6 +6,7 @@ Gracefully skips if ingestion dependencies are not installed.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +21,18 @@ import pytest
 
 _MISSING_DEPS: list[str] = []
 
+
+def _is_missing_dep(module_name: str) -> bool:
+    """Return True when a dependency is unavailable or replaced by a test stub."""
+    if isinstance(sys.modules.get(module_name), MagicMock):
+        return True
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return True
+    return isinstance(module, MagicMock) or isinstance(sys.modules.get(module_name), MagicMock)
+
+
 for _mod_name in (
     "google.cloud",
     "google.cloud.storage",
@@ -28,11 +41,8 @@ for _mod_name in (
     "docx",
     "pypdf",
 ):
-    if _mod_name not in sys.modules:
-        try:
-            __import__(_mod_name)
-        except ImportError:
-            _MISSING_DEPS.append(_mod_name)
+    if _is_missing_dep(_mod_name):
+        _MISSING_DEPS.append(_mod_name)
 
 if _MISSING_DEPS:
     _storage_stub = MagicMock()

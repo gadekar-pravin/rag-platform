@@ -73,6 +73,11 @@ class TestRecallAtK:
     def test_k_zero(self) -> None:
         assert recall_at_k(["a"], {"a"}, 0) == 0.0
 
+    def test_duplicate_retrieved_docs_count_once(self) -> None:
+        retrieved = ["a", "a", "x"]
+        relevant = {"a", "b"}
+        assert recall_at_k(retrieved, relevant, 3) == 0.5
+
 
 class TestNDCGAtK:
     def test_ideal_ordering(self) -> None:
@@ -101,6 +106,10 @@ class TestNDCGAtK:
 
     def test_k_zero(self) -> None:
         assert ndcg_at_k(["a"], {"a": 3}, 0) == 0.0
+
+    def test_duplicate_retrieved_doc_does_not_inflate_score(self) -> None:
+        # Duplicate hits should not create extra gain.
+        assert ndcg_at_k(["a", "a"], {"a": 3}, 2) == 1.0
 
     def test_ndcg_math(self) -> None:
         # Manual DCG calculation

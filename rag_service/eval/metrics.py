@@ -28,7 +28,8 @@ def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> flo
     if k <= 0 or not relevant_ids:
         return 0.0
     top_k = retrieved_ids[:k]
-    hits = sum(1 for doc_id in top_k if doc_id in relevant_ids)
+    # Recall is based on unique relevant documents retrieved, not repeated IDs.
+    hits = len(set(top_k) & relevant_ids)
     return hits / len(relevant_ids)
 
 
@@ -50,8 +51,14 @@ def ndcg_at_k(retrieved_ids: list[str], relevance_grades: dict[str, int], k: int
 
     # DCG: sum of (2^rel - 1) / log2(rank + 1)
     dcg = 0.0
+    seen_docs: set[str] = set()
     for i, doc_id in enumerate(top_k):
-        rel = relevance_grades.get(doc_id, 0)
+        # A document should only contribute gain once; duplicates are treated as zero gain.
+        if doc_id in seen_docs:
+            rel = 0
+        else:
+            seen_docs.add(doc_id)
+            rel = relevance_grades.get(doc_id, 0)
         dcg += (2**rel - 1) / math.log2(i + 2)  # +2 because rank is 1-indexed
 
     # IDCG: best possible DCG with ideal ordering

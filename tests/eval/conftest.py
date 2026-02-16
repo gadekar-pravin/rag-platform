@@ -136,9 +136,10 @@ async def eval_seed_documents_real(
     eval_dataset: dict[str, Any],
 ) -> dict[str, str]:
     """Seed eval documents with real Gemini embeddings. Skips without GEMINI_API_KEY."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        pytest.skip("GEMINI_API_KEY not set — skipping real embedding eval")
+    has_api_key = bool(os.getenv("GEMINI_API_KEY"))
+    has_adc = bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("K_SERVICE"))
+    if not has_api_key and not has_adc:
+        pytest.skip("No embedding credentials — set GEMINI_API_KEY or GOOGLE_APPLICATION_CREDENTIALS")
 
     from rag_service.chunking.chunker import chunk_document
     from rag_service.embedding import embed_chunks

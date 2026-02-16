@@ -6,7 +6,51 @@ The RAG Platform is a standalone, multi-tenant Retrieval-Augmented Generation se
 
 ---
 
-## 2. What is RAG?
+## 2. Why This Platform Exists
+
+### The Problem: Tribal Knowledge Trapped in Silos
+
+Data engineers and data architects routinely lose time to a recurring set of problems:
+
+| Pain Point | Example |
+|---|---|
+| **Finding the right table or metric** | "Which table has the canonical revenue number — `fact_revenue`, `fact_orders_revenue`, or the one in the legacy schema?" |
+| **Re-learning tribal knowledge** | A senior engineer leaves; their undocumented knowledge of pipeline edge cases leaves with them. |
+| **Debugging recurring issues** | The same Airflow failure gets re-investigated every quarter because the runbook lives in a Slack thread from 2023. |
+| **Onboarding friction** | New hires spend weeks asking "where is this documented?" — often the answer is "it isn't." |
+
+This knowledge exists *somewhere* — scattered across Confluence pages, design docs, Slack threads, README files, and people's heads. But it is not accessible at the moment an engineer needs it: while they are writing code.
+
+### Why Copilot Alone Is Not Enough
+
+GitHub Copilot is effective at syntax completion, boilerplate generation, and general programming patterns. But it has no knowledge of:
+
+- Internal database schemas and naming conventions
+- Data contracts and SLA definitions
+- Team-specific runbooks and incident playbooks
+- Pipeline configuration patterns and guardrails
+- Organizational decisions captured in design documents
+
+When asked about these topics, Copilot either hallucinates a plausible-sounding answer or declines to respond. Neither outcome helps the engineer.
+
+### The Solution: Give Copilot Access to Internal Knowledge
+
+This platform bridges the gap by connecting VS Code Copilot to a curated, permissioned corpus of internal documents via the Model Context Protocol (MCP). When an engineer asks a question, Copilot retrieves relevant passages from the knowledge base and generates answers grounded in actual internal documentation — with citations back to the source.
+
+This is **not** training a custom model or fine-tuning an LLM. The organization's documents remain in a governed database with access controls and audit trails. The LLM simply reads the retrieved passages at query time, the same way a human would read a document before answering a question.
+
+### Why Now
+
+| Factor | Rationale |
+|---|---|
+| **Already paying for Copilot** | The organization has Copilot licenses deployed. Adding RAG extends the investment rather than requiring a new tool. |
+| **Fastest path to value** | No model training, no fine-tuning, no GPU infrastructure. Curate documents, ingest them, and Copilot can use them immediately. |
+| **Strong governance** | Row-Level Security enforces tenant isolation at the database level. Documents are curated (not scraped). Answers include citations, reducing hallucination risk. Access is controlled via Cloud Run IAM and OIDC — every query is authenticated. |
+| **Low adoption friction** | Engineers stay in VS Code. No new UI to learn, no context switching. The MCP server appears as a tool in Copilot's existing chat interface. |
+
+---
+
+## 3. What is RAG?
 
 ### The Problem
 
@@ -55,7 +99,7 @@ flowchart LR
 
 ---
 
-## 3. System Architecture Overview
+## 4. System Architecture Overview
 
 The platform consists of three independently deployable components, all running on Google Cloud:
 
@@ -121,7 +165,7 @@ flowchart TB
 
 ---
 
-## 4. Search Request Flow (End-to-End)
+## 5. Search Request Flow (End-to-End)
 
 When a data engineer asks a question in VS Code Copilot, here is the full request path:
 
@@ -163,7 +207,7 @@ sequenceDiagram
 
 ---
 
-## 5. Database Design
+## 6. Database Design
 
 ### 3-Table Separation Rationale
 
@@ -261,7 +305,7 @@ erDiagram
 
 ---
 
-## 6. Hybrid Search Algorithm (RRF)
+## 7. Hybrid Search Algorithm (RRF)
 
 ### The Problem
 
@@ -322,7 +366,7 @@ flowchart TB
 
 ---
 
-## 7. Multi-Tenant Security (Row-Level Security)
+## 8. Multi-Tenant Security (Row-Level Security)
 
 ### The Problem
 
@@ -374,7 +418,7 @@ flowchart LR
 
 ---
 
-## 8. Authentication
+## 9. Authentication
 
 ### Two Auth Modes
 
@@ -427,7 +471,7 @@ sequenceDiagram
 
 ---
 
-## 9. Ingestion Pipeline
+## 10. Ingestion Pipeline
 
 ### Purpose
 
@@ -491,7 +535,7 @@ flowchart TB
 
 ---
 
-## 10. Embedding and Chunking
+## 11. Embedding and Chunking
 
 ### Embedding
 
@@ -523,7 +567,7 @@ The rule-based chunker also computes character offsets (`chunk_start`, `chunk_en
 
 ---
 
-## 11. MCP Server (VS Code Integration)
+## 12. MCP Server (VS Code Integration)
 
 ### What is MCP?
 
@@ -549,7 +593,7 @@ The MCP server is a lightweight proxy — it has **no database access** and **no
 
 ---
 
-## 12. Deployment Topology
+## 13. Deployment Topology
 
 ### Cloud Run Services
 
@@ -623,7 +667,7 @@ flowchart TB
 
 ---
 
-## 13. Key Advantages
+## 14. Key Advantages
 
 - **Database-level multi-tenancy** — PostgreSQL `FORCE ROW LEVEL SECURITY` eliminates the risk of data leaks from missing `WHERE` clauses. RLS policies cascade from documents to chunks to embeddings.
 - **Hybrid search with RRF** — Combines vector cosine similarity and full-text keyword matching, outperforming either method alone. A single SQL query (8+ CTEs) handles fusion, ranking, and chunk selection.
@@ -637,7 +681,7 @@ flowchart TB
 
 ---
 
-## 14. Configuration Reference
+## 15. Configuration Reference
 
 All configuration is driven by environment variables. No `settings.json` files.
 
@@ -731,7 +775,7 @@ See `.env.example` for a template with all required variables.
 
 ---
 
-## 15. API and MCP Tools Reference
+## 16. API and MCP Tools Reference
 
 ### REST API Endpoints
 

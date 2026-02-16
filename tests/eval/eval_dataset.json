@@ -1,0 +1,172 @@
+{
+  "description": "Ground-truth evaluation dataset for RAG retrieval quality measurement. 15 queries across 6 categories with graded relevance (0-3) against 3 seed documents.",
+  "documents": [
+    {
+      "title": "API Design Guidelines",
+      "content": "REST API Design Best Practices\n\n1. Use nouns for resource URLs, not verbs.\n2. Use HTTP methods correctly: GET for reads, POST for creates, PUT for full updates, PATCH for partial updates, DELETE for removal.\n3. Return appropriate HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request, 401 Unauthorized, 404 Not Found.\n4. Version your API using URL path (e.g., /v1/users) or headers.\n5. Use pagination for list endpoints: offset/limit or cursor-based.\n6. Support filtering, sorting, and field selection via query parameters.\n7. Use HATEOAS for discoverability where appropriate.\n8. Document your API with OpenAPI/Swagger specifications.",
+      "doc_type": "guidelines"
+    },
+    {
+      "title": "Database Migration Runbook",
+      "content": "Database Migration Procedures\n\nPre-migration checklist:\n- Take a full database backup\n- Review migration SQL in a staging environment\n- Notify the team about the planned downtime window\n- Ensure rollback scripts are tested\n\nMigration steps:\n1. Enable maintenance mode on the application\n2. Run alembic upgrade head\n3. Verify schema changes with \\dt and \\d+ commands\n4. Run smoke tests against the migrated database\n5. Disable maintenance mode\n6. Monitor application logs for errors\n\nRollback procedure:\n1. Enable maintenance mode\n2. Run alembic downgrade -1\n3. Restore from backup if needed\n4. Disable maintenance mode",
+      "doc_type": "runbook"
+    },
+    {
+      "title": "Python Coding Standards",
+      "content": "Python Coding Standards for the Team\n\nFormatting:\n- Use ruff for linting and formatting\n- Line length: 120 characters maximum\n- Use type hints for all function signatures\n\nNaming conventions:\n- snake_case for functions and variables\n- PascalCase for classes\n- UPPER_CASE for constants\n\nArchitecture patterns:\n- Prefer async/await for I/O operations\n- Use dependency injection over global state\n- Write stateless service classes\n- Use Pydantic for data validation\n\nTesting:\n- Write unit tests with pytest\n- Use pytest-asyncio for async tests\n- Mock external dependencies\n- Aim for 80%+ code coverage",
+      "doc_type": "standards"
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "query": "HTTP status codes for REST API",
+      "category": "keyword_match",
+      "relevance": {
+        "API Design Guidelines": 3,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q02",
+      "query": "alembic database migration steps",
+      "category": "keyword_match",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 3,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q03",
+      "query": "ruff linting python formatting",
+      "category": "keyword_match",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 3
+      }
+    },
+    {
+      "id": "q04",
+      "query": "how to design web service endpoints",
+      "category": "semantic",
+      "relevance": {
+        "API Design Guidelines": 3,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 1
+      }
+    },
+    {
+      "id": "q05",
+      "query": "safely updating production schema",
+      "category": "semantic",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 3,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q06",
+      "query": "team conventions for writing clean code",
+      "category": "semantic",
+      "relevance": {
+        "API Design Guidelines": 1,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 3
+      }
+    },
+    {
+      "id": "q07",
+      "query": "API versioning and database rollback procedures",
+      "category": "multi_topic",
+      "relevance": {
+        "API Design Guidelines": 2,
+        "Database Migration Runbook": 2,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q08",
+      "query": "testing practices and OpenAPI documentation",
+      "category": "multi_topic",
+      "relevance": {
+        "API Design Guidelines": 2,
+        "Database Migration Runbook": 1,
+        "Python Coding Standards": 2
+      }
+    },
+    {
+      "id": "q09",
+      "query": "pagination and cursor-based list endpoints",
+      "category": "single_doc",
+      "relevance": {
+        "API Design Guidelines": 3,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q10",
+      "query": "backup and restore database before migration",
+      "category": "single_doc",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 3,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q11",
+      "query": "best practices for APIs and coding standards",
+      "category": "multi_doc",
+      "relevance": {
+        "API Design Guidelines": 3,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 2
+      }
+    },
+    {
+      "id": "q12",
+      "query": "maintenance mode downtime and smoke tests",
+      "category": "multi_doc",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 3,
+        "Python Coding Standards": 1
+      }
+    },
+    {
+      "id": "q13",
+      "query": "HATEOAS",
+      "category": "edge_case",
+      "relevance": {
+        "API Design Guidelines": 3,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 0
+      }
+    },
+    {
+      "id": "q14",
+      "query": "PascalCase snake_case naming",
+      "category": "edge_case",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 3
+      }
+    },
+    {
+      "id": "q15",
+      "query": "async dependency injection Pydantic",
+      "category": "edge_case",
+      "relevance": {
+        "API Design Guidelines": 0,
+        "Database Migration Runbook": 0,
+        "Python Coding Standards": 3
+      }
+    }
+  ]
+}

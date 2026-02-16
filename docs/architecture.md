@@ -800,3 +800,145 @@ See `.env.example` for a template with all required variables.
 - **Deployment guide**: [`docs/deployment.md`](deployment.md)
 - **VS Code MCP setup**: [`docs/vscode-mcp-setup.md`](vscode-mcp-setup.md)
 - **Ingestion plan**: [`docs/alloy_db_manual_ingestion_implementation_plan_v_1.md`](alloy_db_manual_ingestion_implementation_plan_v_1.md)
+
+---
+
+## 17. Cost Analysis
+
+This section breaks down the GCP billing implications of running the RAG Platform, provides monthly cost estimates at two scales, and explains how the architecture minimizes spend.
+
+### 17.1 Cost Components
+
+| Service | What It Does | Billing Model | Unit Price (Estimate) |
+|---|---|---|---|
+| Compute Engine (AlloyDB VM) | Hosts AlloyDB Omni (`e2-medium`) | Fixed (24/7 VM) | ~$25/month (shared with ApexFlow) |
+| Cloud Run (Services) | RAG Service + MCP Server | Per vCPU-second + GiB-second | $0.000024/vCPU-sec, $0.0000025/GiB-sec |
+| Cloud Run (Jobs) | Ingestion pipeline | Per vCPU-second + GiB-second | Same rates, only during execution |
+| Vertex AI (Gemini Embeddings) | Embedding generation (`gemini-embedding-001`) | Per 1M input tokens | $0.15/1M tokens |
+| Cloud Storage (GCS) | Source documents for ingestion | Per GB stored + operations | $0.02/GB/month |
+| Document AI | OCR for scanned PDFs/images | Per page processed | ~$1.50/1,000 pages |
+| Artifact Registry | Container images (3 services) | Per GB stored | $0.10/GB/month |
+| Secret Manager | DB password, OIDC audience | Per version + access | $0.06/version/month |
+| Cloud Logging | Structured JSON logs | Per GiB ingested | $0.50/GiB (50 GiB/month free) |
+| Cloud Build | Container image builds | Per build-minute | $0.006/min (2,500 min/month free) |
+| VPC Direct Egress | Cloud Run → AlloyDB | N/A | No additional charge |
+| IAM | Service accounts, OIDC | N/A | Free |
+
+### 17.2 Free Tier Coverage
+
+Several services fall partially or fully within GCP's always-free tier at low-to-moderate usage:
+
+| Service | Free Tier Allowance | Platform Usage at Small Scale |
+|---|---|---|
+| Cloud Run | 180K vCPU-seconds + 360K GiB-seconds/month | Low query volume fits within free tier |
+| Secret Manager | 6 active versions + 10K accesses/month | 2 secrets, well within limits |
+| Cloud Logging | 50 GiB/month | Structured logs at low volume stay under 1 GiB |
+| Cloud Build | 2,500 build-minutes/month | Weekly deploys use <50 minutes |
+
+At small-team scale (~100 queries/day), the only services with meaningful cost are the Compute Engine VM, Gemini embedding API calls, and any Document AI OCR processing. Everything else is covered by free tiers or costs pennies.
+
+### 17.3 Monthly Cost Estimates
+
+#### Scenario A — Small Team (5–10 engineers)
+
+Workload: 500 documents (~5,000 chunks), weekly batch ingestion (incremental), ~100 search queries/day.
+
+| Line Item | Calculation | Monthly Cost |
+|---|---|---|
+| AlloyDB VM (e2-medium, shared) | Fixed; split with ApexFlow | ~$12.50 (half of ~$25) |
+| Cloud Run — RAG Service | ~100 queries/day × 30 days × ~200ms × 1 vCPU | <$1 (within free tier) |
+| Cloud Run — MCP Server | Same query volume, lightweight proxy | <$1 (within free tier) |
+| Cloud Run Job — Ingestion | Weekly run, ~10 min each, most files skipped | <$1 |
+| Gemini Embeddings — Search | 3,000 queries/month × ~50 tokens/query | <$0.01 |
+| Gemini Embeddings — Ingestion | ~50 new chunks/week × ~500 tokens/chunk | <$0.01 |
+| Cloud Storage | ~1 GB source documents | $0.02 |
+| Document AI OCR | ~20 scanned pages/week | ~$0.12 |
+| Artifact Registry | ~1.5 GB (3 images) | $0.15 |
+| Secret Manager | 2 secrets | $0.12 |
+| Cloud Logging | <1 GiB | Free |
+| Cloud Build | ~20 min/month | Free |
+| **Total** | | **~$15–17/month** |
+
+> **Note:** The dominant cost is the shared Compute Engine VM. If attributed fully to RAG (not split with ApexFlow), the total rises to ~$27–30/month. All prices are estimates — GCP pricing changes over time and free tier allowances may apply.
+
+#### Scenario B — Medium Team (20–50 engineers)
+
+Workload: 2,000+ documents (~20,000 chunks), daily batch ingestion, ~500 search queries/day.
+
+| Line Item | Calculation | Monthly Cost |
+|---|---|---|
+| AlloyDB VM (e2-medium, shared) | Fixed; split with ApexFlow | ~$12.50 |
+| Cloud Run — RAG Service | ~500 queries/day × 30 days × ~200ms × 1 vCPU | ~$1–2 |
+| Cloud Run — MCP Server | Same query volume, lightweight proxy | <$1 |
+| Cloud Run Job — Ingestion | Daily run, ~20 min, incremental | ~$1–2 |
+| Gemini Embeddings — Search | 15,000 queries/month × ~50 tokens/query | ~$0.11 |
+| Gemini Embeddings — Ingestion | ~200 new chunks/day × ~500 tokens/chunk × 30 days | ~$0.45 |
+| Cloud Storage | ~5 GB source documents | $0.10 |
+| Document AI OCR | ~100 scanned pages/day | ~$4.50 |
+| Artifact Registry | ~1.5 GB (3 images) | $0.15 |
+| Secret Manager | 2 secrets | $0.12 |
+| Cloud Logging | ~2 GiB | Free (under 50 GiB) |
+| Cloud Build | ~60 min/month | Free |
+| **Total** | | **~$22–28/month** |
+
+> **Note:** Even at 5× the query volume and 4× the document corpus, costs remain under $30/month. The architecture's scale-to-zero and incremental ingestion keep variable costs minimal. Document AI OCR becomes the largest variable cost if many scanned PDFs are ingested.
+
+### 17.4 Where the Money Goes
+
+```mermaid
+flowchart LR
+    subgraph Fixed ["Fixed Costs (~$13/month)"]
+        VM["AlloyDB VM<br/>(shared e2-medium)<br/>~$12.50"]
+        AR["Artifact Registry<br/>$0.15"]
+        SM["Secret Manager<br/>$0.12"]
+    end
+
+    subgraph Variable ["Variable Costs (usage-based)"]
+        CR["Cloud Run<br/>(scale-to-zero)<br/>$0–3"]
+        EMB["Gemini Embeddings<br/>$0.01–0.56"]
+        OCR["Document AI OCR<br/>$0–4.50"]
+        GCS["Cloud Storage<br/>$0.02–0.10"]
+    end
+
+    subgraph FreeTier ["Covered by Free Tier"]
+        LOG["Cloud Logging"]
+        CB["Cloud Build"]
+    end
+
+    Fixed --> |"Baseline"| TOTAL["Monthly Total<br/>~$15–28"]
+    Variable --> |"Scales with usage"| TOTAL
+    FreeTier --> |"$0 at moderate scale"| TOTAL
+```
+
+The AlloyDB VM is the dominant cost at any scale. Variable costs (Cloud Run, Gemini, Document AI) remain small because the platform uses scale-to-zero, incremental ingestion, and batched embedding. At small-team scale, most variable services fall within GCP's free tier.
+
+### 17.5 How the Architecture Saves Costs
+
+The platform's design choices directly reduce GCP spend:
+
+1. **Scale-to-zero Cloud Run** — Both services and ingestion jobs use `min-instances=0`. When no requests are in flight, compute cost is zero. There is no idle server billing.
+2. **Shared AlloyDB instance** — The database VM is shared with ApexFlow. RAG uses independent `rag_*` tables on the same instance, avoiding the cost of a dedicated database server.
+3. **Incremental ingestion** — `compute_source_hash()` compares GCS metadata (generation, md5, crc32c, size, updated) against stored hashes. Unchanged files are skipped entirely, avoiding redundant embedding API calls.
+4. **3-table separation** — The documents → chunks → embeddings design means re-embedding (e.g., upgrading from `gemini-embedding-001` to a future model) does not require re-chunking. Chunking is the expensive LLM-driven step in semantic mode.
+5. **Batched embedding** — The ingestion pipeline sends 100 texts per batch with 8 concurrent batches, minimizing per-call overhead against the Gemini API.
+6. **Direct VPC egress** — Cloud Run connects to AlloyDB via Direct VPC egress, not a VPC connector. This eliminates the ~$7–10/month fixed cost of running connector instances.
+7. **Lightweight MCP proxy** — The MCP server runs at 256 MiB with no database connection. It forwards requests to the RAG service, keeping its own resource footprint minimal.
+8. **Deduplication indexes** — Three partial unique indexes prevent storing duplicate documents, saving both storage and embedding costs on re-ingestion.
+9. **Rate limiting** — Per-endpoint rate limits (10–60 req/min) prevent runaway API costs from accidental loops or abuse.
+
+### 17.6 Cost Scaling Factors
+
+These configuration knobs have the largest impact on monthly spend:
+
+| Knob | What It Affects | Cost Impact |
+|---|---|---|
+| `RAG_CHUNK_SIZE` | Chunks per document | Smaller chunks → more embeddings per document → higher Gemini cost |
+| `RAG_CHUNK_OVERLAP` | Overlap between chunks | More overlap → more chunks → more embeddings |
+| `RAG_INGEST_INCREMENTAL` | Files re-processed per run | Set to `false` → all files re-embedded every run |
+| `RAG_INGEST_MAX_FILE_WORKERS` | Concurrent file processing | More workers → faster runs but higher peak Cloud Run cost |
+| `DB_POOL_MAX` | Connections per instance | More connections → higher memory per Cloud Run instance |
+| Cloud Run max instances | Concurrent serving capacity | Higher max → higher peak compute cost during traffic spikes |
+| `RAG_OCR_ENABLED` | Document AI usage | Disable if no scanned documents; saves ~$1.50/1,000 pages |
+| `RAG_EMBEDDING_DIM` | Vector storage size | Higher dimensions → more storage, slightly slower search |
+
+The most impactful cost lever is `RAG_INGEST_INCREMENTAL`. With incremental mode enabled (the default), a daily ingestion run over 2,000 documents where only 50 changed processes just those 50 — not all 2,000. This alone can reduce embedding costs by 95%+ on repeat runs.

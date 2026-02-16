@@ -45,4 +45,4 @@ jobs:
       - name: Unit tests
         run: |
           source .venv/bin/activate
-          pytest tests/unit/ -v --tb=short
+          pytest tests/unit/ tests/eval/test_retrieval_metrics.py -v --tb=short

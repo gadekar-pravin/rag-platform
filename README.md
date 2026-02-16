@@ -311,6 +311,11 @@ gcloud compute ssh alloydb-omni-dev --zone=us-central1-a --tunnel-through-iap --
 # Then set DATABASE_TEST_URL in .env or pass it directly:
 DATABASE_TEST_URL="postgresql://apexflow:<password>@localhost:5432/apexflow" pytest tests/integration/ -v
 
+# Retrieval quality evaluation
+pytest tests/eval/test_retrieval_metrics.py -v    # metrics unit tests (no DB)
+pytest tests/eval/ -v -k synthetic                # synthetic embeddings (DB, no API key)
+pytest tests/eval/ -v -k real                     # real Gemini embeddings (DB + ADC/API key)
+
 # Full suite
 pytest tests/ -v
 ```
@@ -400,6 +405,8 @@ rag_service/              # Core RAG API (FastAPI)
   stores/
     rag_document_store.py # Document CRUD with content-hash + source_uri dedup
     rag_search_store.py   # Hybrid search with RRF fusion
+  eval/
+    metrics.py            # IR metrics: Precision@K, Recall@K, NDCG@K, MRR, Hit Rate
   ingestion/              # GCS batch ingestion pipeline
     main.py               # CLI entry point
     runner.py             # Orchestrates extract → chunk → embed → store
@@ -416,7 +423,7 @@ alembic/                  # Database migrations
   versions/001_rag_tables.py  # 5 tables, RLS policies, 3 dedup indexes
 
 docs/                     # Implementation plans and design docs
-tests/                    # Unit (mock) + integration (real DB) tests
+tests/                    # Unit (mock) + integration (real DB) + eval tests
 scripts/                  # ScaNN indexes, dev data seeding
 ```
 

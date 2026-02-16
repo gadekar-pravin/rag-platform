@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-The RAG Platform is a standalone, multi-tenant Retrieval-Augmented Generation service built on Google Cloud. It enables data engineers and data architects to search proprietary internal documents directly from VS Code Copilot — without needing access to the parent application (ApexFlow). The platform exposes a hybrid search API combining vector similarity and full-text search with Reciprocal Rank Fusion (RRF), backed by AlloyDB with pgvector. Multi-tenant data isolation is enforced at the database level through PostgreSQL Row-Level Security (RLS), not application-layer `WHERE` clauses. An MCP (Model Context Protocol) server bridges VS Code Copilot to the search API, allowing engineers to query the knowledge base in natural language without leaving their IDE.
+This RAG Platform is a standalone, multi-tenant Retrieval-Augmented Generation service built on Google Cloud. It enables data engineers and data architects to search proprietary internal documents directly from VS Code Copilot. The platform exposes a hybrid search API combining vector similarity and full-text search with Reciprocal Rank Fusion (RRF), backed by AlloyDB with pgvector. Multi-tenant data isolation is enforced at the database level through PostgreSQL Row-Level Security (RLS), not application-layer `WHERE` clauses. An MCP (Model Context Protocol) server bridges VS Code Copilot to the search API, allowing engineers to query the knowledge base in natural language without leaving their IDE.
 
 ---
 
@@ -613,7 +613,7 @@ The MCP server is a lightweight proxy — it has **no database access** and **no
 
 ### Infrastructure
 
-- **AlloyDB instance**: `alloydb-omni-dev` on GCE VM in `us-central1-a` (shared with ApexFlow, private IP `10.128.0.3`). Independent `rag_*` tables with separate Alembic migration chain (`rag_alembic_version` table).
+- **AlloyDB instance**: `alloydb-omni-dev` on GCE VM in `us-central1-a` (private IP `10.128.0.3`). Independent `rag_*` tables with separate Alembic migration chain (`rag_alembic_version` table).
 - **Container images**: `us-central1-docker.pkg.dev/apexflow-ai/rag/{rag-service,rag-mcp,rag-ingestor}`
 - **Secrets**: `rag-alloydb-password`, `rag-oidc-audience` in Secret Manager
 - **GCS bucket**: `gs://rag-ingest-apexflow-ai` for source documents
@@ -811,7 +811,7 @@ This section breaks down the GCP billing implications of running the RAG Platfor
 
 | Service | What It Does | Billing Model | Unit Price (Estimate) |
 |---|---|---|---|
-| Compute Engine (AlloyDB VM) | Hosts AlloyDB Omni (`e2-medium`) | Fixed (24/7 VM) | ~$25/month (shared with ApexFlow) |
+| Compute Engine (AlloyDB VM) | Hosts AlloyDB Omni (`e2-medium`) | Fixed (24/7 VM) | ~$25/month |
 | Cloud Run (Services) | RAG Service + MCP Server | Per vCPU-second + GiB-second | $0.000024/vCPU-sec, $0.0000025/GiB-sec |
 | Cloud Run (Jobs) | Ingestion pipeline | Per vCPU-second + GiB-second | Same rates, only during execution |
 | Vertex AI (Gemini Embeddings) | Embedding generation (`gemini-embedding-001`) | Per 1M input tokens | $0.15/1M tokens |
@@ -845,7 +845,7 @@ Workload: 500 documents (~5,000 chunks), weekly batch ingestion (incremental), ~
 
 | Line Item | Calculation | Monthly Cost |
 |---|---|---|
-| AlloyDB VM (e2-medium, shared) | Fixed; split with ApexFlow | ~$12.50 (half of ~$25) |
+| AlloyDB VM (e2-medium, shared) | Fixed | ~$12.50 (half of ~$25) |
 | Cloud Run — RAG Service | ~100 queries/day × 30 days × ~200ms × 1 vCPU | <$1 (within free tier) |
 | Cloud Run — MCP Server | Same query volume, lightweight proxy | <$1 (within free tier) |
 | Cloud Run Job — Ingestion | Weekly run, ~10 min each, most files skipped | <$1 |
@@ -859,7 +859,7 @@ Workload: 500 documents (~5,000 chunks), weekly batch ingestion (incremental), ~
 | Cloud Build | ~20 min/month | Free |
 | **Total** | | **~$15–17/month** |
 
-> **Note:** The dominant cost is the shared Compute Engine VM. If attributed fully to RAG (not split with ApexFlow), the total rises to ~$27–30/month. All prices are estimates — GCP pricing changes over time and free tier allowances may apply.
+> **Note:** The dominant cost is the shared Compute Engine VM. If attributed fully to RAG, the total rises to ~$27–30/month. All prices are estimates — GCP pricing changes over time and free tier allowances may apply.
 
 #### Scenario B — Medium Team (20–50 engineers)
 
@@ -867,7 +867,7 @@ Workload: 2,000+ documents (~20,000 chunks), daily batch ingestion, ~500 search 
 
 | Line Item | Calculation | Monthly Cost |
 |---|---|---|
-| AlloyDB VM (e2-medium, shared) | Fixed; split with ApexFlow | ~$12.50 |
+| AlloyDB VM (e2-medium, shared) | Fixed | ~$12.50 |
 | Cloud Run — RAG Service | ~500 queries/day × 30 days × ~200ms × 1 vCPU | ~$1–2 |
 | Cloud Run — MCP Server | Same query volume, lightweight proxy | <$1 |
 | Cloud Run Job — Ingestion | Daily run, ~20 min, incremental | ~$1–2 |
@@ -917,7 +917,7 @@ The AlloyDB VM is the dominant cost at any scale. Variable costs (Cloud Run, Gem
 The platform's design choices directly reduce GCP spend:
 
 1. **Scale-to-zero Cloud Run** — Both services and ingestion jobs use `min-instances=0`. When no requests are in flight, compute cost is zero. There is no idle server billing.
-2. **Shared AlloyDB instance** — The database VM is shared with ApexFlow. RAG uses independent `rag_*` tables on the same instance, avoiding the cost of a dedicated database server.
+2. **Shared AlloyDB instance** — RAG uses independent `rag_*` tables on the same instance, avoiding the cost of a dedicated database server.
 3. **Incremental ingestion** — `compute_source_hash()` compares GCS metadata (generation, md5, crc32c, size, updated) against stored hashes. Unchanged files are skipped entirely, avoiding redundant embedding API calls.
 4. **3-table separation** — The documents → chunks → embeddings design means re-embedding (e.g., upgrading from `gemini-embedding-001` to a future model) does not require re-chunking. Chunking is the expensive LLM-driven step in semantic mode.
 5. **Batched embedding** — The ingestion pipeline sends 100 texts per batch with 8 concurrent batches, minimizing per-call overhead against the Gemini API.

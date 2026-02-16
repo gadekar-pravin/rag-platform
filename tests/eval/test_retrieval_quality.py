@@ -7,6 +7,7 @@ Two test classes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -80,8 +81,11 @@ class TestRetrievalQualitySynthetic:
         """Smoke test: loads dataset, runs queries, computes metrics, prints report."""
         from rag_service.config import RAG_EMBEDDING_DIM
 
+        def _stable_seed(s: str) -> int:
+            return int.from_bytes(hashlib.sha256(s.encode()).digest()[:8], "big")
+
         async def synthetic_embed(query: str) -> list[float]:
-            return _make_synthetic_embedding(RAG_EMBEDDING_DIM, seed=hash(query))
+            return _make_synthetic_embedding(RAG_EMBEDDING_DIM, seed=_stable_seed(query))
 
         report = await _run_evaluation(eval_db_pool, eval_dataset, eval_seed_documents, synthetic_embed)
         output = format_report(report)

@@ -121,7 +121,7 @@ class EvalReport:
     mean_ndcg_at_5: float
     mean_mrr: float
     mean_hit_rate: float
-    per_category: dict[str, dict[str, float]] = field(default_factory=dict)
+    per_category: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
 
 def evaluate_query(

@@ -74,4 +74,4 @@ RAG_CORS_ALLOW_HEADERS: list[str] = _env_csv(
 RAG_CORS_ALLOW_CREDENTIALS: bool = _env_bool("RAG_CORS_ALLOW_CREDENTIALS", False)
 
 # -- Server -------------------------------------------------------------------
-IS_CLOUD_RUN: bool = bool(os.getenv("K_SERVICE"))
+IS_CLOUD_RUN: bool = bool(os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB"))

@@ -38,7 +38,7 @@ class GCPJsonFormatter(JsonFormatter):
 
 def setup_logging(*, level: str = "INFO") -> None:
     """Configure structured JSON logging when on Cloud Run, plain text locally."""
-    is_cloud_run = bool(os.getenv("K_SERVICE"))
+    is_cloud_run = bool(os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB"))
 
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))

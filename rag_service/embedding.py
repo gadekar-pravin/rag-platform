@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 def _is_gcp_environment() -> bool:
     """Detect if running on GCP (Cloud Run, GCE, etc.)."""
-    return bool(os.getenv("K_SERVICE") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+    return bool(os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
 
 
 @lru_cache(maxsize=1)

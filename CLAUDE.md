@@ -100,7 +100,7 @@ Same AlloyDB Omni instance as ApexFlow (`alloydb-omni-dev`), but uses independen
 
 **Connection priority** (`rag_service/db.py`):
 1. `DATABASE_URL` env var (explicit override)
-2. `K_SERVICE` detected → Cloud Run mode using `ALLOYDB_*` vars
+2. `K_SERVICE` or `CLOUD_RUN_JOB` detected → Cloud Run mode using `ALLOYDB_*` vars
 3. Local dev → builds from `DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_PORT`/`DB_NAME` (defaults to `localhost:5432`, user `apexflow`)
 
 **Connection pool:** asyncpg, min_size=1, max_size=5 (configurable via `DB_POOL_MAX`). Each new connection registers the pgvector codec.
@@ -336,7 +336,8 @@ scripts/
 | `DATABASE_URL` | Full database connection string (overrides all DB_* vars) | -- |
 | `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | Individual DB connection params | `localhost:5432`, user `apexflow` |
 | `DB_POOL_MAX` | Max async connection pool size | `5` |
-| `K_SERVICE` | Auto-set by Cloud Run; triggers production mode | -- |
+| `K_SERVICE` | Auto-set by Cloud Run Services; triggers production mode | -- |
+| `CLOUD_RUN_JOB` | Auto-set by Cloud Run Jobs; triggers production mode (alongside `K_SERVICE`) | -- |
 | `RAG_SERVICE_URL` | RAG API URL for MCP server | `http://localhost:8000` |
 | `RAG_MCP_TOKEN` | Auth token for MCP → RAG API calls | unset |
 | `MCP_PORT` | MCP server listen port | `8001` |

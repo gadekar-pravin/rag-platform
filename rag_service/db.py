@@ -44,7 +44,7 @@ class DatabaseConfig:
             return url
 
         # Priority 2: Cloud Run -> managed AlloyDB
-        if os.environ.get("K_SERVICE"):
+        if os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_JOB"):
             host = os.environ.get("ALLOYDB_HOST")
             db = os.environ.get("ALLOYDB_DB", "apexflow")
             user = os.environ.get("ALLOYDB_USER", "apexflow")

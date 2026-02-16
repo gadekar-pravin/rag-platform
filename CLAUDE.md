@@ -35,6 +35,12 @@ pytest tests/unit/test_auth.py -v                 # single file
 pytest tests/unit/test_auth.py::test_func -v      # single test function
 pytest tests/unit/test_search_store.py::TestClass::test_method -v  # method in class
 
+# Retrieval evaluation
+pytest tests/eval/ -v                             # full eval suite
+pytest tests/eval/test_retrieval_metrics.py -v    # metrics unit tests (no DB)
+pytest tests/eval/ -v -k synthetic                # synthetic embeddings (DB, no API key)
+pytest tests/eval/ -v -k real                     # real Gemini embeddings (DB + API key/ADC)
+
 # Lint and format
 ruff check .                                      # lint
 ruff check . --fix                                # lint with auto-fix
@@ -224,6 +230,8 @@ rag_service/              # Core RAG API service
   stores/
     rag_document_store.py # CRUD: upsert (ad-hoc + source_uri), list, get, soft-delete
     rag_search_store.py   # Hybrid search: 3-table join, RRF, best-chunks
+  eval/
+    metrics.py            # IR metrics: Precision@K, Recall@K, NDCG@K, MRR, Hit Rate
   ingestion/              # GCS batch ingestion pipeline
     main.py               # CLI entry point (python -m rag_service.ingestion.main)
     cli.py                # Argument parser (--tenant, --dry-run, --force, etc.)
@@ -278,6 +286,11 @@ tests/
     test_hybrid_search.py # Vector ranking, FTS, RRF fusion, best-chunks
     test_ingestion_dedup.py  # GCS canonical upsert, unchanged skip, atomicity
     test_ingestion_runner.py # Runner E2E: extract→chunk→store, run tracking, incremental skip
+  eval/                     # Retrieval quality evaluation
+    eval_dataset.json       # 15 ground-truth queries with graded relevance (0-3)
+    conftest.py             # DB pool, synthetic/real seeding fixtures
+    test_retrieval_metrics.py  # Unit tests for IR metric functions (no DB)
+    test_retrieval_quality.py  # Integration eval: synthetic + real Gemini embeddings
 
 scripts/
   create-scann-indexes.sql  # ScaNN index (AlloyDB only, run after data)

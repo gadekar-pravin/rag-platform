@@ -19,6 +19,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _mint_token(audience: str) -> str:
     url = _METADATA_URL.format(audience=urllib.parse.quote(audience, safe=""))
     req = urllib.request.Request(url, headers=_METADATA_HEADERS)
     with urllib.request.urlopen(req, timeout=5) as resp:
-        token = resp.read().decode("utf-8").strip()
+        token = cast(str, resp.read().decode("utf-8").strip())
     if not token:
         raise RuntimeError("Metadata server returned empty token")
     return token

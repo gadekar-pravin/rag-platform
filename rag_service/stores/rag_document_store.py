@@ -335,7 +335,7 @@ class RagDocumentStore:
                     d.tenant_id = $2
                     AND d.visibility = 'TEAM'
                     AND d.source_uri IS NULL
-                    AND d.content_hash = $10
+                    AND d.content_hash = $9
                     AND d.deleted_at IS NULL
                 """
             else:
@@ -348,7 +348,7 @@ class RagDocumentStore:
                     d.tenant_id = $2
                     AND d.visibility = 'PRIVATE'
                     AND d.owner_user_id = $4
-                    AND d.content_hash = $10
+                    AND d.content_hash = $9
                     AND d.deleted_at IS NULL
                 """
 
@@ -361,8 +361,8 @@ class RagDocumentStore:
                          embedding_model, embedding_dim, ingestion_version,
                          chunk_method, total_chunks)
                     VALUES ($1, $2, $3, $4, $5, $6,
-                            NULL, $8::jsonb, $9, $16, $10,
-                            $11, $12, $13, $14, $15)
+                            NULL, $7::jsonb, $8, $15, $9,
+                            $10, $11, $12, $13, $14)
                     {conflict_clause}
                     DO NOTHING
                     RETURNING
@@ -395,16 +395,15 @@ class RagDocumentStore:
                 owner_user_id,  # $4
                 title,  # $5
                 doc_type,  # $6
-                None,  # $7 (unused)
-                meta_json,  # $8
-                content,  # $9
-                content_hash,  # $10
-                RAG_EMBEDDING_MODEL,  # $11
-                RAG_EMBEDDING_DIM,  # $12
-                RAG_INGESTION_VERSION,  # $13
-                chunk_method,  # $14
-                len(chunks),  # $15
-                source_hash,  # $16
+                meta_json,  # $7
+                content,  # $8
+                content_hash,  # $9
+                RAG_EMBEDDING_MODEL,  # $10
+                RAG_EMBEDDING_DIM,  # $11
+                RAG_INGESTION_VERSION,  # $12
+                chunk_method,  # $13
+                len(chunks),  # $14
+                source_hash,  # $15
             )
             if row is None:
                 raise RuntimeError("Failed to insert or resolve deduplicated document row")
@@ -474,13 +473,14 @@ class RagDocumentStore:
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         """List visible documents (TEAM + owned PRIVATE, enforced by RLS)."""
-        total = await conn.fetchval("SELECT COUNT(*) FROM rag_documents")
+        total = await conn.fetchval("SELECT COUNT(*) FROM rag_documents WHERE deleted_at IS NULL")
 
         rows = await conn.fetch(
             """
             SELECT id, title, doc_type, source_uri, visibility,
                    total_chunks, embedding_model, created_at, updated_at
             FROM rag_documents
+            WHERE deleted_at IS NULL
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             """,
@@ -495,7 +495,7 @@ class RagDocumentStore:
         doc_id: str,
     ) -> dict[str, Any] | None:
         row = await conn.fetchrow(
-            "SELECT * FROM rag_documents WHERE id = $1",
+            "SELECT * FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
             uuid.UUID(doc_id),
         )
         return dict(row) if row else None

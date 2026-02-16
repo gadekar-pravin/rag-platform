@@ -1,0 +1,12 @@
+Welcome to the RAG Platform
+
+This is a sample document used for testing the text extraction pipeline.
+It contains multiple paragraphs with varying content to ensure proper handling.
+
+The platform supports hybrid search combining vector similarity and full-text
+search using Reciprocal Rank Fusion (RRF) for optimal result ranking.
+
+Key features include:
+- Multi-tenant isolation via Row-Level Security
+- Automatic text chunking with configurable overlap
+- Support for multiple document formats
